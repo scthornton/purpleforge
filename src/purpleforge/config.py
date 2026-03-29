@@ -1,0 +1,45 @@
+"""Configuration via Pydantic Settings. Single source of truth for all env vars."""
+
+from __future__ import annotations
+
+from pydantic import SecretStr
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class PurpleForgeSettings(BaseSettings):
+    """All PurpleForge configuration loaded from environment variables and .env file."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+
+    # LLM
+    openai_api_key: SecretStr
+    openai_model: str = "gpt-4o-mini"
+
+    # Caldera
+    caldera_url: str = "http://localhost:8888"
+    caldera_api_key: SecretStr
+
+    # LimaCharlie
+    lc_api_key: SecretStr
+    lc_org_id: str
+
+    # WinRM (Atomic Red Team target)
+    winrm_host: str
+    winrm_user: str = "Administrator"
+    winrm_password: SecretStr
+    winrm_transport: str = "ntlm"
+    winrm_port: int = 5985
+
+    # GitHub (optional — only needed for deploy-draft --target github)
+    github_token: SecretStr | None = None
+    detection_repo: str | None = None
+
+    # ChromaDB
+    chroma_persist_dir: str = "./data/chroma"
+
+    # Pipeline
+    detection_wait_seconds: int = 120
+    caldera_operation_timeout: int = 300
+    caldera_poll_interval: int = 5
+    detection_query_buffer: int = 60
+    run_base_dir: str = "./data/runs"
