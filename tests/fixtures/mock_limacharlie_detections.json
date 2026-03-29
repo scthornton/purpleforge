@@ -1,0 +1,47 @@
+[
+  {
+    "detect_id": "lc-detect-001",
+    "ts": 1711900000,
+    "detect_mtd": {
+      "description": "PowerShell execution detected",
+      "tags": ["t1059", "t1059.001"]
+    },
+    "detect": {"event": {"COMMAND_LINE": "powershell.exe -enc ..."}}
+  },
+  {
+    "detect_id": "lc-detect-002",
+    "ts": 1711900100,
+    "detect_mtd": {
+      "description": "Scheduled task creation detected",
+      "tags": ["t1053", "t1053.005"]
+    },
+    "detect": {"event": {"COMMAND_LINE": "schtasks /create ..."}}
+  },
+  {
+    "detect_id": "lc-detect-003",
+    "ts": 1711900200,
+    "detect_mtd": {
+      "description": "Credential access attempt",
+      "tags": ["t1003"]
+    },
+    "detect": {"event": {"COMMAND_LINE": "mimikatz.exe"}}
+  },
+  {
+    "detect_id": "lc-detect-004",
+    "ts": 1711900300,
+    "detect_mtd": {
+      "description": "Directory enumeration detected",
+      "tags": ["t1083"]
+    },
+    "detect": {"event": {"COMMAND_LINE": "dir /s /b C:\\Users"}}
+  },
+  {
+    "detect_id": "lc-detect-005",
+    "ts": 1711900400,
+    "detect_mtd": {
+      "description": "Suspicious network activity",
+      "tags": []
+    },
+    "detect": {"event": {"COMMAND_LINE": "curl https://evil.com"}}
+  }
+]

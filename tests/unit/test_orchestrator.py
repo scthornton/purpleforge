@@ -119,7 +119,20 @@ class TestOrchestratorConfirm:
         with pytest.raises(PipelineError, match="expected 'awaiting_review'"):
             orchestrator.confirm_run(run.run_id)
 
-    def test_confirm_with_valid_ttps(self, mock_settings: MagicMock, tmp_path: Path) -> None:
+    @patch.object(PipelineOrchestrator, "_step_wait")
+    @patch.object(PipelineOrchestrator, "_step_execute")
+    @patch.object(PipelineOrchestrator, "_step_resolve")
+    def test_confirm_with_valid_ttps(
+        self,
+        mock_resolve: MagicMock,
+        mock_execute: MagicMock,
+        mock_wait: MagicMock,
+        mock_settings: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        mock_resolve.return_value = []
+        mock_execute.return_value = []
+
         orchestrator = PipelineOrchestrator(mock_settings)
         run = orchestrator.store.create_run("/tmp/test.pdf")
         orchestrator.store.update_status(run.run_id, RunStatus.AWAITING_REVIEW)
@@ -143,6 +156,8 @@ class TestOrchestratorConfirm:
 
         updated = orchestrator.store.load_run(run.run_id)
         assert updated.status == RunStatus.COMPLETE
+        mock_resolve.assert_called_once()
+        mock_execute.assert_called_once()
 
     def test_confirm_empty_ttps_raises(self, mock_settings: MagicMock) -> None:
         orchestrator = PipelineOrchestrator(mock_settings)
