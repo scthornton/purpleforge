@@ -22,6 +22,7 @@ from purpleforge.models.emulation import EmulationMethod, EmulationRecord
 from purpleforge.models.extraction import NormalizedTechnique
 from purpleforge.models.pipeline import RunStatus
 from purpleforge.pipeline.run_store import RunStore
+from purpleforge.report.advisory_generator import AdvisoryGenerator
 from purpleforge.report.coverage_analyzer import CoverageAnalyzer
 from purpleforge.report.heatmap_generator import HeatmapGenerator
 from purpleforge.report.html_renderer import HtmlRenderer
@@ -127,7 +128,14 @@ class PipelineOrchestrator:
             self.store.fail_step(run_id, "REPORT", str(e))
             raise
 
-        # TODO: Phase 5 will add ADVISE step
+        # ADVISE (optional)
+        if not getattr(self, '_skip_advise', False):
+            try:
+                self._step_advise(run_id)
+            except Exception as e:
+                # Advisory failures are non-fatal
+                logger.warning("Advisory generation failed: %s", e)
+
         self.store.update_status(run_id, RunStatus.COMPLETE)
 
     def _step_ingest(self, run_id: str, source_path: str) -> None:
@@ -359,6 +367,54 @@ class PipelineOrchestrator:
             result.coverage_pct, result.detected_count, result.partial_count,
             result.missed_count, result.skipped_count,
         )
+
+
+    def _step_advise(self, run_id: str) -> None:
+        """ADVISE step: generate Sigma rule drafts for missed techniques."""
+        self.store.update_status(run_id, RunStatus.ADVISING)
+        self.store.start_step(run_id, "ADVISE")
+
+        # Load evidence chains to find missed techniques
+        chains_data = self.store.read_artifact(run_id, "evidence_chains.json")
+        missed = [c for c in chains_data if c.get("status") == "missed"]
+
+        if not missed:
+            logger.info("No missed techniques — skipping advisory generation")
+            self.store.complete_step(run_id, "ADVISE")
+            return
+
+        generator = AdvisoryGenerator(
+            api_key=self.settings.openai_api_key.get_secret_value(),
+            model=self.settings.openai_model,
+        )
+
+        missed_input = [
+            {
+                "technique_id": m["technique_id"],
+                "technique_name": m.get("technique_name", ""),
+                "tactic": m.get("tactic", ""),
+            }
+            for m in missed
+        ]
+
+        rules = generator.generate_batch(missed_input)
+
+        # Write drafts
+        run_dir = Path(self.settings.run_base_dir) / run_id / "drafts"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        for rule in rules:
+            # Write Sigma YAML
+            (run_dir / f"{rule.technique_id}_sigma_draft.yaml").write_text(rule.rule_yaml)
+            # Write advisory metadata
+            self.store.write_artifact(
+                run_id,
+                f"drafts/{rule.technique_id}_advisory.json",
+                json.loads(rule.model_dump_json()),
+            )
+
+        self.store.complete_step(run_id, "ADVISE", artifact_path="drafts/")
+        logger.info("Generated %d advisory drafts for missed techniques", len(rules))
 
 
 class PipelineError(Exception):
