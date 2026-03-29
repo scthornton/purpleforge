@@ -25,8 +25,55 @@ def cli() -> None:
 def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: bool) -> None:
     """Start a new pipeline run. Ingests PDF and extracts TTPs."""
     console.print(f"[bold]PurpleForge v{__version__}[/bold]")
-    console.print(f"Source: {source}")
-    console.print("[yellow]Pipeline not yet implemented. Coming in Phase 2.[/yellow]")
+
+    try:
+        from purpleforge.config import PurpleForgeSettings
+
+        settings = PurpleForgeSettings()  # type: ignore[call-arg]
+    except Exception as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        console.print("Ensure all required environment variables are set. See .env.example")
+        raise SystemExit(2)
+
+    # Apply CLI overrides
+    settings.detection_wait_seconds = detection_wait
+    settings.caldera_operation_timeout = caldera_timeout
+
+    from purpleforge.pipeline.orchestrator import PipelineOrchestrator
+
+    orchestrator = PipelineOrchestrator(settings)
+
+    try:
+        with console.status("[bold green]Ingesting and extracting TTPs..."):
+            run_id = orchestrator.start_run(source)
+    except Exception as e:
+        console.print(f"[red]Pipeline error: {e}[/red]")
+        raise SystemExit(1)
+
+    # Load the extracted TTPs to display
+    run_data = orchestrator.store.load_run(run_id)
+    ttps = orchestrator.store.read_artifact(run_id, "extracted_ttps.yaml")
+    techniques = ttps.get("techniques", [])
+
+    console.print(f"\nRun ID: [bold]{run_id}[/bold]")
+    console.print()
+
+    if techniques:
+        table = Table(title=f"Extracted {len(techniques)} techniques")
+        table.add_column("Technique", style="cyan")
+        table.add_column("Name")
+        table.add_column("Tactic")
+        table.add_column("Confidence")
+        for t in techniques:
+            conf = t.get("confidence", t.get("confidence", ""))
+            style = {"high": "green", "medium": "yellow", "low": "red"}.get(conf, "")
+            table.add_row(t["technique_id"], t["technique_name"], t["tactic"], f"[{style}]{conf}[/{style}]")
+        console.print(table)
+
+    run_dir = f"{settings.run_base_dir}/{run_id}"
+    console.print(f"\nReview extracted TTPs at:")
+    console.print(f"  [bold]{run_dir}/extracted_ttps.yaml[/bold]")
+    console.print(f"\nWhen ready: [bold]purpleforge confirm --run-id {run_id}[/bold]")
 
 
 @cli.command()
@@ -34,8 +81,28 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
 @click.option("--ttps-file", default=None, type=click.Path(exists=True), help="Override TTPs file path")
 def confirm(run_id: str, ttps_file: str | None) -> None:
     """Confirm extracted TTPs and proceed with emulation, validation, and reporting."""
-    console.print(f"Confirming run [bold]{run_id}[/bold]")
-    console.print("[yellow]Pipeline not yet implemented. Coming in Phase 3.[/yellow]")
+    try:
+        from purpleforge.config import PurpleForgeSettings
+
+        settings = PurpleForgeSettings()  # type: ignore[call-arg]
+    except Exception as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        raise SystemExit(2)
+
+    from purpleforge.pipeline.orchestrator import PipelineError, PipelineOrchestrator
+
+    orchestrator = PipelineOrchestrator(settings)
+
+    try:
+        console.print(f"Confirming run [bold]{run_id}[/bold]")
+        orchestrator.confirm_run(run_id, ttps_file)
+        console.print(f"[green]Run {run_id} confirmed and processing complete.[/green]")
+    except PipelineError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(f"[red]Pipeline error: {e}[/red]")
+        raise SystemExit(1)
 
 
 @cli.command()
