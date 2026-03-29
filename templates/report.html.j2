@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PurpleForge Coverage Report — Run {{ run_id }}</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; }
+  h1, h2 { color: #c084fc; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.5rem; }
+  h2 { font-size: 1.3rem; margin: 2rem 0 1rem; border-bottom: 1px solid #333; padding-bottom: 0.5rem; }
+  .meta { color: #888; margin-bottom: 2rem; }
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+  .stat { background: #16213e; border-radius: 8px; padding: 1.2rem; text-align: center; }
+  .stat .value { font-size: 2rem; font-weight: bold; }
+  .stat .label { font-size: 0.85rem; color: #888; margin-top: 0.3rem; }
+  .detected .value { color: #a1d99b; }
+  .partial .value { color: #fee08b; }
+  .missed .value { color: #fc8d59; }
+  .skipped .value { color: #888; }
+  .coverage .value { color: #c084fc; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #2a2a4a; }
+  th { background: #16213e; color: #c084fc; font-weight: 600; }
+  tr:hover { background: #16213e; }
+  .status-detected { color: #a1d99b; font-weight: bold; }
+  .status-partial { color: #fee08b; font-weight: bold; }
+  .status-missed { color: #fc8d59; font-weight: bold; }
+  .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
+  .badge-high { background: #1a472a; color: #a1d99b; }
+  .badge-medium { background: #4a3f00; color: #fee08b; }
+  .badge-low { background: #4a2000; color: #fc8d59; }
+  .badge-none { background: #333; color: #888; }
+  .evidence { font-size: 0.85rem; color: #aaa; }
+  footer { margin-top: 3rem; text-align: center; color: #555; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<h1>PurpleForge Coverage Report</h1>
+<p class="meta">Run ID: {{ run_id }} | Generated: {{ generated_at }}</p>
+
+<div class="summary">
+  <div class="stat coverage">
+    <div class="value">{{ coverage_pct }}%</div>
+    <div class="label">Coverage</div>
+  </div>
+  <div class="stat detected">
+    <div class="value">{{ detected_count }}</div>
+    <div class="label">Detected</div>
+  </div>
+  <div class="stat partial">
+    <div class="value">{{ partial_count }}</div>
+    <div class="label">Partial</div>
+  </div>
+  <div class="stat missed">
+    <div class="value">{{ missed_count }}</div>
+    <div class="label">Missed</div>
+  </div>
+  <div class="stat skipped">
+    <div class="value">{{ skipped_count }}</div>
+    <div class="label">Skipped</div>
+  </div>
+</div>
+
+<h2>Evidence Table</h2>
+<table>
+<thead>
+<tr>
+  <th>Technique</th>
+  <th>Name</th>
+  <th>Tactic</th>
+  <th>Status</th>
+  <th>Confidence</th>
+  <th>Alerts</th>
+  <th>Notes</th>
+</tr>
+</thead>
+<tbody>
+{% for chain in evidence_chains %}
+<tr>
+  <td>{{ chain.technique_id }}</td>
+  <td>{{ chain.technique_name }}</td>
+  <td>{{ chain.tactic }}</td>
+  <td class="status-{{ chain.status.value }}">{{ chain.status.value | upper }}</td>
+  <td><span class="badge badge-{{ chain.confidence.value }}">{{ chain.confidence.value }}</span></td>
+  <td class="evidence">
+    {% for alert in chain.matching_alerts %}
+      {{ alert.alert_id }} ({{ alert.rule_name }}){% if not loop.last %}<br>{% endif %}
+    {% else %}
+      —
+    {% endfor %}
+  </td>
+  <td class="evidence">{{ chain.reconciliation_note or '—' }}</td>
+</tr>
+{% endfor %}
+{% for tid in skipped_techniques %}
+<tr>
+  <td>{{ tid }}</td>
+  <td colspan="6" class="evidence">Not emulated — no Caldera ability or Atomic test available</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<footer>
+  PurpleForge v0.1.0 | Evidence-driven purple team pipeline | perfecXion.ai
+</footer>
+</body>
+</html>

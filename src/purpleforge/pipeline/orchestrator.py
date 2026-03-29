@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from pathlib import Path
@@ -10,6 +11,7 @@ import yaml
 
 from purpleforge.clients.atomic_runner import AtomicRunner
 from purpleforge.clients.caldera_client import CalderaClient
+from purpleforge.clients.limacharlie_client import LimaCharlieClient
 from purpleforge.config import PurpleForgeSettings
 from purpleforge.execute.atomic_executor import AtomicExecutor
 from purpleforge.execute.caldera_executor import CalderaExecutor
@@ -20,7 +22,11 @@ from purpleforge.models.emulation import EmulationMethod, EmulationRecord
 from purpleforge.models.extraction import NormalizedTechnique
 from purpleforge.models.pipeline import RunStatus
 from purpleforge.pipeline.run_store import RunStore
+from purpleforge.report.coverage_analyzer import CoverageAnalyzer
+from purpleforge.report.heatmap_generator import HeatmapGenerator
+from purpleforge.report.html_renderer import HtmlRenderer
 from purpleforge.resolve.resolver import Resolver
+from purpleforge.validate.detection_validator import DetectionValidator
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +114,20 @@ class PipelineOrchestrator:
 
         self._step_wait(run_id)
 
-        # TODO: Phase 4 will wire VALIDATE → REPORT → ADVISE
+        # VALIDATE → REPORT
+        try:
+            self._step_validate(run_id)
+        except Exception as e:
+            self.store.fail_step(run_id, "VALIDATE", str(e))
+            raise
+
+        try:
+            self._step_report(run_id)
+        except Exception as e:
+            self.store.fail_step(run_id, "REPORT", str(e))
+            raise
+
+        # TODO: Phase 5 will add ADVISE step
         self.store.update_status(run_id, RunStatus.COMPLETE)
 
     def _step_ingest(self, run_id: str, source_path: str) -> None:
@@ -265,6 +284,81 @@ class PipelineOrchestrator:
         time.sleep(wait_seconds)
 
         self.store.complete_step(run_id, "WAIT")
+
+    def _step_validate(self, run_id: str) -> None:
+        """VALIDATE step: query LimaCharlie detections and build evidence chains."""
+        self.store.update_status(run_id, RunStatus.VALIDATING)
+        self.store.start_step(run_id, "VALIDATE")
+
+        # Load emulation results
+        results_data = self.store.read_artifact(run_id, "emulation_results.yaml")
+        records = [EmulationRecord.model_validate(r) for r in results_data.get("records", [])]
+
+        # Query LimaCharlie
+        lc = LimaCharlieClient(
+            api_key=self.settings.lc_api_key.get_secret_value(),
+            org_id=self.settings.lc_org_id,
+        )
+        validator = DetectionValidator(
+            client=lc,
+            query_buffer=self.settings.detection_query_buffer,
+        )
+        chains = validator.validate(records, detection_wait=self.settings.detection_wait_seconds)
+
+        # Write evidence chains
+        chains_data = [json.loads(c.model_dump_json()) for c in chains]
+        self.store.write_artifact(run_id, "evidence_chains.json", chains_data)
+        self.store.complete_step(run_id, "VALIDATE", artifact_path="evidence_chains.json")
+
+        logger.info("Validated %d techniques", len(chains))
+
+    def _step_report(self, run_id: str) -> None:
+        """REPORT step: generate coverage report, HTML, and Navigator JSON."""
+        import json as json_mod
+
+        self.store.update_status(run_id, RunStatus.REPORTING)
+        self.store.start_step(run_id, "REPORT")
+
+        # Load evidence chains
+        from purpleforge.models.evidence import EvidenceChain
+
+        chains_data = self.store.read_artifact(run_id, "evidence_chains.json")
+        chains = [EvidenceChain.model_validate(c) for c in chains_data]
+
+        # Load execution plan to find skipped techniques
+        plan_data = self.store.read_artifact(run_id, "execution_plan.yaml")
+        skipped = [
+            t["technique_id"] for t in plan_data.get("techniques", [])
+            if t.get("method") == "skip"
+        ]
+
+        # Coverage analysis
+        analyzer = CoverageAnalyzer()
+        result = analyzer.analyze(chains, run_id, skipped_techniques=skipped)
+
+        # Write coverage report JSON
+        self.store.write_artifact(
+            run_id, "coverage_report.json",
+            json_mod.loads(result.model_dump_json()),
+        )
+
+        # Generate HTML report
+        renderer = HtmlRenderer()
+        html = renderer.render(result)
+        run_dir = Path(self.settings.run_base_dir) / run_id
+        (run_dir / "coverage_report.html").write_text(html)
+
+        # Generate Navigator layer
+        heatmap = HeatmapGenerator()
+        layer = heatmap.generate(result)
+        self.store.write_artifact(run_id, "navigator_layer.json", layer)
+
+        self.store.complete_step(run_id, "REPORT", artifact_path="coverage_report.json")
+        logger.info(
+            "Report: coverage=%.1f%% (D:%d P:%d M:%d S:%d)",
+            result.coverage_pct, result.detected_count, result.partial_count,
+            result.missed_count, result.skipped_count,
+        )
 
 
 class PipelineError(Exception):
