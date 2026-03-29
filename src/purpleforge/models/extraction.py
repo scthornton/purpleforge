@@ -16,7 +16,7 @@ class Confidence(str, Enum):
 class ExtractedTTP(BaseModel):
     """A single TTP extracted from a threat report by the LLM."""
 
-    technique_id: str = Field(..., pattern=r"T\d{4}(\.\d{3})?")
+    technique_id: str = Field(..., pattern=r"^T\d{4}(\.\d{3})?$")
     technique_name: str
     tactic: str
     description: str
@@ -42,7 +42,7 @@ class ThreatReport(BaseModel):
 class NormalizedTechnique(BaseModel):
     """A confirmed technique ready for resolution. Operator may have edited this."""
 
-    technique_id: str = Field(..., pattern=r"T\d{4}(\.\d{3})?")
+    technique_id: str = Field(..., pattern=r"^T\d{4}(\.\d{3})?$")
     technique_name: str
     tactic: str
     description: str

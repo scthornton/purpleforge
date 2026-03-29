@@ -17,7 +17,7 @@ class EmulationMethod(str, Enum):
 class ResolvedTechnique(BaseModel):
     """A technique with its execution method determined."""
 
-    technique_id: str = Field(..., pattern=r"T\d{4}(\.\d{3})?")
+    technique_id: str = Field(..., pattern=r"^T\d{4}(\.\d{3})?$")
     technique_name: str
     method: EmulationMethod
     ability_id: str | None = None

@@ -50,7 +50,7 @@ class EvidenceChain(BaseModel):
     """
 
     # Technique identity
-    technique_id: str = Field(..., pattern=r"T\d{4}(\.\d{3})?")
+    technique_id: str = Field(..., pattern=r"^T\d{4}(\.\d{3})?$")
     technique_name: str
     tactic: str
 
