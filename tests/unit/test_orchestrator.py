@@ -119,6 +119,8 @@ class TestOrchestratorConfirm:
         with pytest.raises(PipelineError, match="expected 'awaiting_review'"):
             orchestrator.confirm_run(run.run_id)
 
+    @patch.object(PipelineOrchestrator, "_step_report")
+    @patch.object(PipelineOrchestrator, "_step_validate")
     @patch.object(PipelineOrchestrator, "_step_wait")
     @patch.object(PipelineOrchestrator, "_step_execute")
     @patch.object(PipelineOrchestrator, "_step_resolve")
@@ -127,6 +129,8 @@ class TestOrchestratorConfirm:
         mock_resolve: MagicMock,
         mock_execute: MagicMock,
         mock_wait: MagicMock,
+        mock_validate: MagicMock,
+        mock_report: MagicMock,
         mock_settings: MagicMock,
         tmp_path: Path,
     ) -> None:
