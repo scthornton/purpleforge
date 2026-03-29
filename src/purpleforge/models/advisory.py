@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from enum import Enum
-
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
-class RuleConfidence(str, Enum):
+class RuleConfidence(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class EmulationMethod(str, Enum):
+class EmulationMethod(StrEnum):
     CALDERA = "caldera"
     ATOMIC = "atomic"
     SKIP = "skip"
@@ -35,7 +35,7 @@ class ExecutionPlan(BaseModel):
     skip_count: int = 0
 
 
-class EmulationStatus(str, Enum):
+class EmulationStatus(StrEnum):
     SUCCESS = "success"
     FAILED = "failed"
     TIMEOUT = "timeout"

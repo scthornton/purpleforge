@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class RunStatus(str, Enum):
+class RunStatus(StrEnum):
     CREATED = "created"
     INGESTING = "ingesting"
     AWAITING_REVIEW = "awaiting_review"
@@ -23,7 +23,7 @@ class RunStatus(str, Enum):
     FAILED = "failed"
 
 
-class StepStatus(str, Enum):
+class StepStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETE = "complete"

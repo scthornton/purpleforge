@@ -28,10 +28,8 @@ from purpleforge.models import (
     RuleConfidence,
     RunStatus,
     StepStatus,
-    ThreatReport,
     TTPExtractionResult,
 )
-
 
 # === Extraction Models ===
 

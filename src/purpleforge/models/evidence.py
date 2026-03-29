@@ -3,26 +3,26 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class MatchType(str, Enum):
+class MatchType(StrEnum):
     EXACT_TECHNIQUE = "exact_technique"
     PARENT_TECHNIQUE = "parent_technique"
     TIME_CORRELATION = "time_correlation"
     NONE = "none"
 
 
-class DetectionConfidence(str, Enum):
+class DetectionConfidence(StrEnum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
     NONE = "none"
 
 
-class CoverageStatus(str, Enum):
+class CoverageStatus(StrEnum):
     """Classification of detection coverage for a technique."""
 
     DETECTED = "detected"
