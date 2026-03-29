@@ -58,7 +58,7 @@ class LimaCharlieClient:
 
     def get_detections(self, limit: int = 1000) -> list[dict]:
         """GET /v1/detects — retrieve recent detections."""
-        resp = self._request("GET", "/v1/detects", params={"limit": limit})
+        resp = self._request("GET", "/detects", params={"limit": limit})
         data = resp.json()
         return data.get("detects", [])  # type: ignore[no-any-return]
 
@@ -85,21 +85,21 @@ class LimaCharlieClient:
         matches = []
 
         for detection in detections:
-            tags = detection.get("detect_mtd", {}).get("tags", [])
-            for tag in tags:
-                tag_lower = tag.lower()
-                if tag_lower == technique_lower:
-                    matches.append({**detection, "_match_type": "exact_technique", "_matched_tag": tag})
-                    break
-                if tag_lower == parent_lower and "." in technique_id:
-                    matches.append({**detection, "_match_type": "parent_technique", "_matched_tag": tag})
-                    break
+            tags = [t.lower() for t in detection.get("detect_mtd", {}).get("tags", [])]
+
+            # Check exact match first (higher priority)
+            if technique_lower in tags:
+                matched_tag = next(t for t in detection["detect_mtd"]["tags"] if t.lower() == technique_lower)
+                matches.append({**detection, "_match_type": "exact_technique", "_matched_tag": matched_tag})
+            elif "." in technique_id and parent_lower in tags:
+                matched_tag = next(t for t in detection["detect_mtd"]["tags"] if t.lower() == parent_lower)
+                matches.append({**detection, "_match_type": "parent_technique", "_matched_tag": matched_tag})
 
         return matches
 
     def get_detection_rules(self) -> dict:
         """GET /v1/rules/d — retrieve D&R rules."""
-        resp = self._request("GET", "/v1/rules/d")
+        resp = self._request("GET", "/rules/d")
         return resp.json()  # type: ignore[no-any-return]
 
     def _detection_in_range(self, detection: dict, start: datetime, end: datetime) -> bool:

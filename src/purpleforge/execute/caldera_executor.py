@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
-from purpleforge.clients.caldera_client import CalderaClient, CalderaOperationTimeout
+from purpleforge.clients.caldera_client import CalderaClient, CalderaOperationTimeoutError
 from purpleforge.models.emulation import EmulationMethod, EmulationRecord, EmulationStatus, ResolvedTechnique
 
 logger = logging.getLogger(__name__)
@@ -67,7 +67,7 @@ class CalderaExecutor:
                 operation_id, timeout=self._timeout, poll_interval=self._poll_interval
             )
             return self._extract_results(finished_op, techniques, start_time)
-        except CalderaOperationTimeout:
+        except CalderaOperationTimeoutError:
             return [
                 EmulationRecord(
                     technique_id=t.technique_id,

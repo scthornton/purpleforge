@@ -15,7 +15,7 @@ class CalderaConnectionError(Exception):
     """Raised when Caldera is unreachable."""
 
 
-class CalderaOperationTimeout(Exception):
+class CalderaOperationTimeoutError(Exception):
     """Raised when a Caldera operation exceeds the timeout."""
 
 
@@ -110,7 +110,7 @@ class CalderaClient:
                 return op
             elapsed = time.monotonic() - start
             if elapsed >= timeout:
-                raise CalderaOperationTimeout(
+                raise CalderaOperationTimeoutError(
                     f"Operation {operation_id} timed out after {timeout}s (state: {state})"
                 )
             time.sleep(poll_interval)
