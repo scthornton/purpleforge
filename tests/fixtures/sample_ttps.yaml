@@ -1,0 +1,27 @@
+# PurpleForge Extracted TTPs
+# Run ID: test-fixture
+# Source: sample_threat_report.pdf
+#
+# REVIEW INSTRUCTIONS:
+# - Edit, add, or remove techniques as needed
+# - Ensure technique_ids match T####.### format
+# - When ready: purpleforge confirm --run-id test-fixture
+
+techniques:
+  - technique_id: "T1059.001"
+    technique_name: "PowerShell"
+    tactic: "Execution"
+    description: "PowerShell-based payload delivery via encoded commands"
+    operator_notes: ""
+
+  - technique_id: "T1053.005"
+    technique_name: "Scheduled Task"
+    tactic: "Persistence"
+    description: "Scheduled tasks for persistence on compromised hosts"
+    operator_notes: ""
+
+  - technique_id: "T1003.001"
+    technique_name: "LSASS Memory"
+    tactic: "Credential Access"
+    description: "Credential dumping from LSASS memory using Mimikatz-style tools"
+    operator_notes: ""
