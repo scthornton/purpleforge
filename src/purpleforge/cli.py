@@ -51,7 +51,6 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
         raise SystemExit(1)
 
     # Load the extracted TTPs to display
-    run_data = orchestrator.store.load_run(run_id)
     ttps = orchestrator.store.read_artifact(run_id, "extracted_ttps.yaml")
     techniques = ttps.get("techniques", [])
 
@@ -71,7 +70,7 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
         console.print(table)
 
     run_dir = f"{settings.run_base_dir}/{run_id}"
-    console.print(f"\nReview extracted TTPs at:")
+    console.print("\nReview extracted TTPs at:")
     console.print(f"  [bold]{run_dir}/extracted_ttps.yaml[/bold]")
     console.print(f"\nWhen ready: [bold]purpleforge confirm --run-id {run_id}[/bold]")
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from langchain_core.documents import Document
-from langchain_core.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
 
