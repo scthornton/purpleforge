@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 class PipelineOrchestrator:
     """State machine: INGEST → REVIEW → RESOLVE → EXECUTE → WAIT → VALIDATE → REPORT → ADVISE."""
 
-    def __init__(self, settings: PurpleForgeSettings) -> None:
+    def __init__(self, settings: PurpleForgeSettings, skip_advise: bool = False) -> None:
         self.settings = settings
         self.store = RunStore(settings.run_base_dir)
+        self.skip_advise = skip_advise
 
     def start_run(self, source_path: str) -> str:
         """Start a new pipeline run: create run, execute INGEST, pause at AWAITING_REVIEW.
@@ -50,6 +51,7 @@ class PipelineOrchestrator:
                 "openai_model": self.settings.openai_model,
                 "detection_wait_seconds": self.settings.detection_wait_seconds,
                 "caldera_operation_timeout": self.settings.caldera_operation_timeout,
+                "skip_advise": self.skip_advise,
             },
         )
         run_id = run.run_id
@@ -128,8 +130,9 @@ class PipelineOrchestrator:
             self.store.fail_step(run_id, "REPORT", str(e))
             raise
 
-        # ADVISE (optional)
-        if not getattr(self, '_skip_advise', False):
+        # ADVISE (optional — check both instance flag and persisted config)
+        skip = self.skip_advise or run.config_snapshot.get("skip_advise", False)
+        if not skip:
             try:
                 self._step_advise(run_id)
             except Exception as e:
