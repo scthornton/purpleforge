@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import click
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from purpleforge import __version__
 
 console = Console()
+
+BANNER = r"""
+[bold red] ____                   _      _____
+|  _ \ _   _ _ __ _ __ | | ___|  ___|__  _ __ __ _  ___
+| |_) | | | | '__| '_ \| |/ _ \ |_ / _ \| '__/ _` |/ _ \
+|  __/| |_| | |  | |_) | |  __/  _| (_) | | | (_| |  __/
+|_|    \__,_|_|  | .__/|_|\___|_|  \___/|_|  \__, |\___|
+                 |_|                          |___/[/bold red]"""
 
 
 @click.group()
@@ -343,3 +353,137 @@ def list_runs() -> None:
     for r in runs:
         table.add_row(r.run_id, r.source_path, r.status.value, str(r.created_at))
     console.print(table)
+
+
+@cli.command()
+def demo() -> None:
+    """Show a sample pipeline run with realistic output (for screenshots/demos)."""
+    import time as _time
+
+    console.print(BANNER)
+    console.print(f"  [dim]v{__version__}[/dim]  [bold]Evidence-Driven Purple Team Pipeline[/bold]")
+    console.print(f"  [dim]SANS SEC598 | Caldera + Atomic Red Team + LimaCharlie[/dim]")
+    console.print()
+
+    run_id = "a3f7c2e1"
+    console.print(
+        Panel(
+            f"[bold]Run ID:[/bold] {run_id}\n"
+            f"[bold]Source:[/bold] APT29_CozyBear_Campaign_Report.pdf\n"
+            f"[bold]Model:[/bold]  gpt-4o  [dim]|[/dim]  [bold]Detection wait:[/bold] 120s",
+            title="[bold cyan]Pipeline Run[/bold cyan]",
+            border_style="cyan",
+        )
+    )
+    console.print()
+
+    # Phase 1: Ingest
+    console.print("[bold white]Phase 1 — INGEST[/bold white]")
+    console.print("  [green]\u2714[/green] Loaded 24 pages, 47 chunks from PDF")
+    console.print("  [green]\u2714[/green] Embedded into ChromaDB collection")
+    console.print("  [green]\u2714[/green] RAG retrieval: top 10 relevant chunks")
+    console.print()
+
+    # Extracted TTPs
+    techniques = [
+        ("T1059.001", "PowerShell", "Execution", "high"),
+        ("T1053.005", "Scheduled Task/Job", "Persistence", "high"),
+        ("T1003.001", "LSASS Memory Dump", "Credential Access", "high"),
+        ("T1071.001", "Web Protocols (C2)", "Command and Control", "medium"),
+        ("T1027", "Obfuscated Files", "Defense Evasion", "medium"),
+        ("T1082", "System Information Discovery", "Discovery", "medium"),
+        ("T1547.001", "Registry Run Keys", "Persistence", "high"),
+        ("T1105", "Ingress Tool Transfer", "Command and Control", "medium"),
+    ]
+
+    table = Table(title=f"[bold]Extracted {len(techniques)} Techniques[/bold]", border_style="dim")
+    table.add_column("Technique", style="cyan", no_wrap=True)
+    table.add_column("Name", style="white")
+    table.add_column("Tactic", style="dim")
+    table.add_column("Confidence", justify="center")
+    for tid, name, tactic, conf in techniques:
+        style = {"high": "green", "medium": "yellow", "low": "red"}[conf]
+        table.add_row(tid, name, tactic, f"[{style}]{conf}[/{style}]")
+    console.print(table)
+    console.print()
+
+    # Phase 2: Resolve
+    console.print("[bold white]Phase 2 — RESOLVE[/bold white]")
+    console.print("  [green]\u2714[/green] Caldera: 5 abilities matched")
+    console.print("  [green]\u2714[/green] Atomic Red Team: 2 fallback tests")
+    console.print("  [yellow]\u26a0[/yellow] Skipped: 1 (T1105 — no available test)")
+    console.print()
+
+    # Phase 3: Execute
+    console.print("[bold white]Phase 3 — EXECUTE[/bold white]")
+    results = [
+        ("T1059.001", "caldera", "success"),
+        ("T1053.005", "caldera", "success"),
+        ("T1003.001", "caldera", "success"),
+        ("T1071.001", "caldera", "success"),
+        ("T1027", "caldera", "failed"),
+        ("T1082", "atomic", "success"),
+        ("T1547.001", "atomic", "success"),
+    ]
+    for tid, method, status in results:
+        icon = "[green]\u2714[/green]" if status == "success" else "[red]\u2718[/red]"
+        method_style = "[cyan]caldera[/cyan]" if method == "caldera" else "[magenta]atomic[/magenta]"
+        status_style = f"[green]{status}[/green]" if status == "success" else f"[red]{status}[/red]"
+        console.print(f"  {icon} {tid}  {method_style}  {status_style}")
+    console.print()
+
+    # Phase 4: Validate
+    console.print("[bold white]Phase 4 — VALIDATE[/bold white]")
+    console.print("  [dim]Waiting 120s for detection propagation...[/dim]")
+    console.print("  [green]\u2714[/green] Fetched 23 detections from LimaCharlie")
+    console.print()
+
+    # Coverage results
+    coverage_data = [
+        ("T1059.001", "PowerShell", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
+        ("T1053.005", "Scheduled Task/Job", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
+        ("T1003.001", "LSASS Memory Dump", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
+        ("T1071.001", "Web Protocols (C2)", "[bold yellow]PARTIAL[/bold yellow]", "medium", "parent_technique"),
+        ("T1027", "Obfuscated Files", "[bold red]MISSED[/bold red]", "none", "emulation failed"),
+        ("T1082", "System Info Discovery", "[bold yellow]PARTIAL[/bold yellow]", "low", "time_correlation"),
+        ("T1547.001", "Registry Run Keys", "[bold red]MISSED[/bold red]", "none", "none"),
+        ("T1105", "Ingress Tool Transfer", "[dim]SKIPPED[/dim]", "—", "no test available"),
+    ]
+
+    cov_table = Table(title="[bold]Coverage Results[/bold]", border_style="dim")
+    cov_table.add_column("Technique", style="cyan", no_wrap=True)
+    cov_table.add_column("Name", style="white")
+    cov_table.add_column("Status", justify="center")
+    cov_table.add_column("Confidence", justify="center")
+    cov_table.add_column("Match", style="dim")
+    for tid, name, status, conf, match in coverage_data:
+        conf_style = {"high": "green", "medium": "yellow", "low": "red", "none": "dim", "—": "dim"}[conf]
+        cov_table.add_row(tid, name, status, f"[{conf_style}]{conf}[/{conf_style}]", match)
+    console.print(cov_table)
+    console.print()
+
+    # Summary
+    console.print("[bold white]Phase 5 — REPORT & ADVISE[/bold white]")
+    console.print("  [green]\u2714[/green] coverage_report.json")
+    console.print("  [green]\u2714[/green] coverage_report.html")
+    console.print("  [green]\u2714[/green] navigator_layer.json  [dim](ATT&CK Navigator)[/dim]")
+    console.print("  [green]\u2714[/green] 2 Sigma rule drafts generated for missed techniques")
+    console.print()
+
+    summary = Text()
+    summary.append("Coverage: ", style="bold")
+    summary.append("71.4%", style="bold green")
+    summary.append("  |  Strict: ", style="bold")
+    summary.append("42.9%", style="bold yellow")
+    console.print(Panel(
+        f"{summary}\n\n"
+        f"  [green]\u2588\u2588[/green] Detected: 3    "
+        f"[yellow]\u2588\u2588[/yellow] Partial:  2    "
+        f"[red]\u2588\u2588[/red] Missed:   2    "
+        f"[dim]\u2588\u2588[/dim] Skipped:  1",
+        title="[bold]Summary[/bold]",
+        border_style="green",
+    ))
+    console.print()
+    console.print(f"  [dim]Reports at: data/runs/{run_id}/[/dim]")
+    console.print(f"  [dim]Deploy drafts: purpleforge deploy-draft --run-id {run_id} --technique T1027[/dim]")
