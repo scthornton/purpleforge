@@ -26,33 +26,66 @@ class DetectionValidator:
         self._query_buffer = query_buffer
 
     def validate(
-        self, records: list[EmulationRecord], detection_wait: int = 120
+        self,
+        records: list[EmulationRecord],
+        detection_wait: int = 120,
+        technique_metadata: dict[str, dict[str, str]] | None = None,
     ) -> list[EvidenceChain]:
-        """Build evidence chains for all successfully emulated techniques."""
+        """Build evidence chains for all emulated techniques.
+
+        Args:
+            records: Emulation results for all techniques.
+            detection_wait: Seconds waited for detection propagation.
+            technique_metadata: Optional map of technique_id → {"name": ..., "tactic": ...}
+                to populate human-readable fields in evidence chains.
+
+        Successful emulations are validated against LimaCharlie detections.
+        Failed/timed-out/error emulations get chains with MISSED status so they
+        remain in the coverage denominator rather than silently disappearing.
+        """
         chains: list[EvidenceChain] = []
+        meta = technique_metadata or {}
 
-        # Only validate successful emulations
         successful = [r for r in records if r.status == EmulationStatus.SUCCESS]
-        if not successful:
-            return chains
+        failed = [r for r in records if r.status != EmulationStatus.SUCCESS]
 
-        # Determine the overall query window
-        earliest_start = min(r.start_time for r in successful)
-        latest_end = max(r.end_time or r.start_time for r in successful)
-        window_start = earliest_start - timedelta(seconds=self._query_buffer)
-        window_end = latest_end + timedelta(seconds=detection_wait + self._query_buffer)
+        # Query detections only if there are successful emulations
+        all_detections: list[dict] = []
+        if successful:
+            earliest_start = min(r.start_time for r in successful)
+            latest_end = max(r.end_time or r.start_time for r in successful)
+            window_start = earliest_start - timedelta(seconds=self._query_buffer)
+            window_end = latest_end + timedelta(seconds=detection_wait + self._query_buffer)
 
-        # Fetch all detections in the window
-        all_detections = self._client.get_detections_by_time_range(
-            start=window_start, end=window_end
-        )
-        logger.info("Fetched %d detections in query window", len(all_detections))
+            all_detections = self._client.get_detections_by_time_range(
+                start=window_start, end=window_end
+            )
+            logger.info("Fetched %d detections in query window", len(all_detections))
 
         for record in successful:
             chain = self._build_chain(record, all_detections, detection_wait)
+            self._apply_metadata(chain, meta)
+            chains.append(chain)
+
+        # Include failed/timed-out/error emulations as MISSED so they count
+        # in the coverage denominator instead of vanishing
+        for record in failed:
+            chain = self._build_failed_chain(record)
+            self._apply_metadata(chain, meta)
             chains.append(chain)
 
         return chains
+
+    @staticmethod
+    def _apply_metadata(
+        chain: EvidenceChain, meta: dict[str, dict[str, str]]
+    ) -> None:
+        """Fill in technique_name and tactic from the metadata lookup."""
+        info = meta.get(chain.technique_id, {})
+        if info.get("name"):
+            chain.technique_name = info["name"]
+        if info.get("tactic"):
+            chain.tactic = info["tactic"]
 
     def _build_chain(
         self,
@@ -147,6 +180,34 @@ class DetectionValidator:
             status=status,
             reconciliation_note=reconciliation,
             parent_technique_checked=parent_checked,
+        )
+
+    def _build_failed_chain(self, record: EmulationRecord) -> EvidenceChain:
+        """Build an evidence chain for a failed/timed-out/error emulation.
+
+        These get MISSED status so they stay in the coverage denominator.
+        """
+        tid = record.technique_id
+        start = record.start_time
+        end = record.end_time or record.start_time
+
+        note = f"Emulation {record.status.value}: {record.error_message or 'no details'}"
+
+        return EvidenceChain(
+            technique_id=tid,
+            technique_name="",
+            tactic="",
+            emulation_step_id=record.execution_id,
+            emulation_method=record.method.value,
+            execution_timestamp=start,
+            execution_end_timestamp=end,
+            detection_query_window_start=start,
+            detection_query_window_end=end,
+            matching_alerts=[],
+            best_match_type=MatchType.NONE,
+            confidence=DetectionConfidence.NONE,
+            status=CoverageStatus.MISSED,
+            reconciliation_note=note,
         )
 
     def _classify(

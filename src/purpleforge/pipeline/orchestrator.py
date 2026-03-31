@@ -302,6 +302,18 @@ class PipelineOrchestrator:
         results_data = self.store.read_artifact(run_id, "emulation_results.yaml")
         records = [EmulationRecord.model_validate(r) for r in results_data.get("records", [])]
 
+        # Build technique metadata lookup from confirmed TTPs
+        technique_metadata: dict[str, dict[str, str]] = {}
+        try:
+            ttps_data = self.store.read_artifact(run_id, "confirmed_ttps.yaml")
+            for t in ttps_data.get("techniques", []):
+                technique_metadata[t["technique_id"]] = {
+                    "name": t.get("technique_name", ""),
+                    "tactic": t.get("tactic", ""),
+                }
+        except FileNotFoundError:
+            logger.warning("confirmed_ttps.yaml not found; evidence chains will lack metadata")
+
         # Query LimaCharlie
         lc = LimaCharlieClient(
             api_key=self.settings.lc_api_key.get_secret_value(),
@@ -311,7 +323,11 @@ class PipelineOrchestrator:
             client=lc,
             query_buffer=self.settings.detection_query_buffer,
         )
-        chains = validator.validate(records, detection_wait=self.settings.detection_wait_seconds)
+        chains = validator.validate(
+            records,
+            detection_wait=self.settings.detection_wait_seconds,
+            technique_metadata=technique_metadata,
+        )
 
         # Write evidence chains
         chains_data = [json.loads(c.model_dump_json()) for c in chains]
