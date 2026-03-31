@@ -41,9 +41,7 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
 
     from purpleforge.pipeline.orchestrator import PipelineOrchestrator
 
-    orchestrator = PipelineOrchestrator(settings)
-    if skip_advise:
-        orchestrator._skip_advise = True
+    orchestrator = PipelineOrchestrator(settings, skip_advise=skip_advise)
 
     try:
         with console.status("[bold green]Ingesting and extracting TTPs..."):
@@ -176,7 +174,14 @@ def status(run_id: str) -> None:
 @click.option("--format", "fmt", type=click.Choice(["json", "html", "navigator", "all"]), default="all")
 def report(run_id: str, fmt: str) -> None:
     """Regenerate reports from existing evidence data."""
+    import json as json_mod
+    from pathlib import Path
+
+    from purpleforge.models.evidence import EvidenceChain
     from purpleforge.pipeline.run_store import RunStore
+    from purpleforge.report.coverage_analyzer import CoverageAnalyzer
+    from purpleforge.report.heatmap_generator import HeatmapGenerator
+    from purpleforge.report.html_renderer import HtmlRenderer
 
     try:
         from purpleforge.config import PurpleForgeSettings
@@ -192,13 +197,53 @@ def report(run_id: str, fmt: str) -> None:
         console.print(f"[red]Run {run_id} not found.[/red]")
         raise SystemExit(1)
 
-    run_dir = f"{store.base_dir}/{run_id}"
+    # Load evidence chains
+    try:
+        chains_data = store.read_artifact(run_id, "evidence_chains.json")
+    except FileNotFoundError:
+        console.print(f"[red]No evidence_chains.json found for run {run_id}. "
+                       "Run must complete validation before reports can be generated.[/red]")
+        raise SystemExit(1)
+
+    chains = [EvidenceChain.model_validate(c) for c in chains_data]
+
+    # Load skipped techniques from execution plan
+    skipped: list[str] = []
+    try:
+        plan_data = store.read_artifact(run_id, "execution_plan.yaml")
+        skipped = [
+            t["technique_id"] for t in plan_data.get("techniques", [])
+            if t.get("method") == "skip"
+        ]
+    except FileNotFoundError:
+        pass
+
+    # Run coverage analysis
+    analyzer = CoverageAnalyzer()
+    result = analyzer.analyze(chains, run_id, skipped_techniques=skipped)
+
+    run_dir = Path(str(store.base_dir)) / run_id
+
     if fmt in ("json", "all"):
-        console.print(f"  coverage_report.json at {run_dir}/")
+        store.write_artifact(
+            run_id, "coverage_report.json",
+            json_mod.loads(result.model_dump_json()),
+        )
+        console.print(f"  [green]Wrote[/green] coverage_report.json at {run_dir}/")
+
     if fmt in ("html", "all"):
-        console.print(f"  coverage_report.html at {run_dir}/")
+        renderer = HtmlRenderer()
+        html = renderer.render(result)
+        (run_dir / "coverage_report.html").write_text(html)
+        console.print(f"  [green]Wrote[/green] coverage_report.html at {run_dir}/")
+
     if fmt in ("navigator", "all"):
-        console.print(f"  navigator_layer.json at {run_dir}/")
+        heatmap = HeatmapGenerator()
+        layer = heatmap.generate(result)
+        store.write_artifact(run_id, "navigator_layer.json", layer)
+        console.print(f"  [green]Wrote[/green] navigator_layer.json at {run_dir}/")
+
+    console.print(f"\n[bold green]Reports regenerated for run {run_id}.[/bold green]")
 
 
 @cli.command("deploy-draft")

@@ -67,7 +67,9 @@ class TestDetectionValidator:
         assert chains[0].status == CoverageStatus.MISSED
         assert chains[0].confidence == DetectionConfidence.NONE
 
-    def test_failed_records_skipped(self, mock_lc: MagicMock) -> None:
+    def test_failed_records_included_as_missed(self, mock_lc: MagicMock) -> None:
+        """Failed emulations should appear in evidence chains as MISSED,
+        not disappear from coverage math entirely."""
         now = datetime.now(UTC)
         failed = EmulationRecord(
             technique_id="T1059.001",
@@ -77,7 +79,10 @@ class TestDetectionValidator:
         )
         validator = DetectionValidator(mock_lc, query_buffer=60)
         chains = validator.validate([failed])
-        assert len(chains) == 0
+        assert len(chains) == 1
+        assert chains[0].status == CoverageStatus.MISSED
+        assert chains[0].confidence == DetectionConfidence.NONE
+        assert "failed" in chains[0].reconciliation_note.lower()
 
     def test_multiple_techniques(self, mock_lc: MagicMock) -> None:
         records = [_record("T1059.001"), _record("T1003.001")]

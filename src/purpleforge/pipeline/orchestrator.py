@@ -35,9 +35,10 @@ logger = logging.getLogger(__name__)
 class PipelineOrchestrator:
     """State machine: INGEST → REVIEW → RESOLVE → EXECUTE → WAIT → VALIDATE → REPORT → ADVISE."""
 
-    def __init__(self, settings: PurpleForgeSettings) -> None:
+    def __init__(self, settings: PurpleForgeSettings, skip_advise: bool = False) -> None:
         self.settings = settings
         self.store = RunStore(settings.run_base_dir)
+        self.skip_advise = skip_advise
 
     def start_run(self, source_path: str) -> str:
         """Start a new pipeline run: create run, execute INGEST, pause at AWAITING_REVIEW.
@@ -50,6 +51,7 @@ class PipelineOrchestrator:
                 "openai_model": self.settings.openai_model,
                 "detection_wait_seconds": self.settings.detection_wait_seconds,
                 "caldera_operation_timeout": self.settings.caldera_operation_timeout,
+                "skip_advise": self.skip_advise,
             },
         )
         run_id = run.run_id
@@ -128,8 +130,9 @@ class PipelineOrchestrator:
             self.store.fail_step(run_id, "REPORT", str(e))
             raise
 
-        # ADVISE (optional)
-        if not getattr(self, '_skip_advise', False):
+        # ADVISE (optional — check both instance flag and persisted config)
+        skip = self.skip_advise or run.config_snapshot.get("skip_advise", False)
+        if not skip:
             try:
                 self._step_advise(run_id)
             except Exception as e:
@@ -302,6 +305,18 @@ class PipelineOrchestrator:
         results_data = self.store.read_artifact(run_id, "emulation_results.yaml")
         records = [EmulationRecord.model_validate(r) for r in results_data.get("records", [])]
 
+        # Build technique metadata lookup from confirmed TTPs
+        technique_metadata: dict[str, dict[str, str]] = {}
+        try:
+            ttps_data = self.store.read_artifact(run_id, "confirmed_ttps.yaml")
+            for t in ttps_data.get("techniques", []):
+                technique_metadata[t["technique_id"]] = {
+                    "name": t.get("technique_name", ""),
+                    "tactic": t.get("tactic", ""),
+                }
+        except FileNotFoundError:
+            logger.warning("confirmed_ttps.yaml not found; evidence chains will lack metadata")
+
         # Query LimaCharlie
         lc = LimaCharlieClient(
             api_key=self.settings.lc_api_key.get_secret_value(),
@@ -311,7 +326,11 @@ class PipelineOrchestrator:
             client=lc,
             query_buffer=self.settings.detection_query_buffer,
         )
-        chains = validator.validate(records, detection_wait=self.settings.detection_wait_seconds)
+        chains = validator.validate(
+            records,
+            detection_wait=self.settings.detection_wait_seconds,
+            technique_metadata=technique_metadata,
+        )
 
         # Write evidence chains
         chains_data = [json.loads(c.model_dump_json()) for c in chains]
