@@ -126,7 +126,7 @@ class RunStore:
         runs: list[PipelineRun] = []
         if not self.base_dir.exists():
             return runs
-        for run_dir in sorted(self.base_dir.iterdir(), reverse=True):
+        for run_dir in self.base_dir.iterdir():
             state_file = run_dir / "run_state.yaml"
             if run_dir.is_dir() and state_file.exists():
                 try:
@@ -134,6 +134,7 @@ class RunStore:
                     runs.append(PipelineRun.model_validate(data))
                 except Exception:
                     continue
+        runs.sort(key=lambda r: r.created_at, reverse=True)
         return runs
 
     def _write_state(self, run: PipelineRun) -> None:

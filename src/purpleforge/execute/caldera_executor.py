@@ -32,14 +32,8 @@ class CalderaExecutor:
 
         op_name = f"purpleforge-{self._run_id}"
 
-        # Create adversary
-        adversary = self._client.create_adversary(
-            name=op_name,
-            ability_ids=ability_ids,
-        )
-        adversary_id = adversary.get("adversary_id", "")
-
-        # Check for existing operation (idempotency)
+        # Check for existing operation first (idempotency) — avoids creating
+        # duplicate adversary objects on repeat runs
         existing_ops = self._client.list_operations()
         existing = next((op for op in existing_ops if op.get("name") == op_name), None)
 
@@ -53,6 +47,13 @@ class CalderaExecutor:
                 existing["id"], timeout=self._timeout, poll_interval=self._poll_interval
             )
             return self._extract_results(op, techniques)
+
+        # Only create adversary when we actually need a new operation
+        adversary = self._client.create_adversary(
+            name=op_name,
+            ability_ids=ability_ids,
+        )
+        adversary_id = adversary.get("adversary_id", "")
 
         # Create new operation
         start_time = datetime.now(UTC)
