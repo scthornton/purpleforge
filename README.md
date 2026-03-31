@@ -4,6 +4,10 @@ Evidence-driven purple team pipeline for SANS SEC598.
 
 Given a threat report, PurpleForge extracts ATT&CK techniques, executes adversary emulations (Caldera + Atomic Red Team), validates detections (LimaCharlie), and produces a trustworthy coverage report with per-technique proof chains.
 
+<p align="center">
+  <img src="assets/demo-screenshot.png" alt="PurpleForge demo output" width="800">
+</p>
+
 ## Background
 
 Purple teaming bridges the gap between red team emulation and blue team detection. The challenge is proving coverage claims — "we detect T1059.001" is meaningless without evidence. PurpleForge solves this with a deterministic pipeline that produces auditable, evidence-rich coverage reports.
@@ -113,6 +117,7 @@ purpleforge deploy-draft --run-id <id> --technique T1027 --target github
 | `purpleforge list` | List all pipeline runs |
 | `purpleforge report` | Regenerate reports from existing evidence data |
 | `purpleforge deploy-draft` | Deploy an advisory Sigma rule draft (stdout or GitHub PR) |
+| `purpleforge demo` | Show a sample pipeline run with realistic output |
 
 ## Evidence Model
 
