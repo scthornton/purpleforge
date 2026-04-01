@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from github import Github
+from github import Github  # type: ignore[import-not-found]
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class GitHubClient:
             content=content,
             branch=branch,
         )
-        return result["commit"].sha
+        return str(result["commit"].sha)
 
     def create_pull_request(self, branch: str, title: str, body: str) -> str:
         """Create PR from branch to main. Returns PR URL."""
@@ -43,4 +43,4 @@ class GitHubClient:
             head=branch,
             base="main",
         )
-        return pr.html_url
+        return str(pr.html_url)

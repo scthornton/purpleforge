@@ -22,7 +22,7 @@ class RunStore:
     def _run_dir(self, run_id: str) -> Path:
         return self.base_dir / run_id
 
-    def create_run(self, source_path: str, config_snapshot: dict | None = None) -> PipelineRun:
+    def create_run(self, source_path: str, config_snapshot: dict[str, Any] | None = None) -> PipelineRun:
         """Create a new run directory and initialize run_state.yaml."""
         run = PipelineRun(source_path=source_path, config_snapshot=config_snapshot or {})
         run_dir = self._run_dir(run.run_id)

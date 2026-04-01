@@ -38,7 +38,7 @@ purpleforge confirm --run-id <id>
 
 ```
 src/purpleforge/
-  cli.py                    Click CLI: run, confirm, status, report, deploy-draft, list
+  cli.py                    Click CLI: run, confirm, status, report, deploy-draft, list, demo
   config.py                 Pydantic Settings — all env vars with SecretStr
   models/                   Pydantic data models (extraction, emulation, evidence, advisory, pipeline)
   ingest/                   PDF loading, ChromaDB vector store, LLM TTP extraction

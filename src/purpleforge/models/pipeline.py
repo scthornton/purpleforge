@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -52,5 +53,5 @@ class PipelineRun(BaseModel):
     status: RunStatus = RunStatus.CREATED
     current_step: str = ""
     steps: list[PipelineStep] = Field(default_factory=list)
-    config_snapshot: dict = Field(default_factory=dict)
+    config_snapshot: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None

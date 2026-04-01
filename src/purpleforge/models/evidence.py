@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -39,7 +40,7 @@ class DetectionMatch(BaseModel):
     matched_tag: str
     match_type: MatchType
     alert_description: str = ""
-    raw_alert: dict = Field(default_factory=dict)
+    raw_alert: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceChain(BaseModel):

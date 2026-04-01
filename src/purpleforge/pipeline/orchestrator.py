@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -206,7 +207,7 @@ class PipelineOrchestrator:
         self.store.complete_step(run_id, "INGEST", artifact_path="extracted_ttps.yaml")
         self.store.update_status(run_id, RunStatus.AWAITING_REVIEW)
 
-    def _step_resolve(self, run_id: str, techniques: list[NormalizedTechnique]) -> list[dict]:
+    def _step_resolve(self, run_id: str, techniques: list[NormalizedTechnique]) -> list[dict[str, Any]]:
         """RESOLVE step: map techniques to Caldera abilities or Atomic tests."""
         self.store.update_status(run_id, RunStatus.RESOLVING)
         self.store.start_step(run_id, "RESOLVE")
@@ -236,9 +237,9 @@ class PipelineOrchestrator:
             plan.caldera_count, plan.atomic_count, plan.skip_count,
         )
 
-        return plan_data["techniques"]
+        return list(plan_data["techniques"])
 
-    def _step_execute(self, run_id: str, resolved_techniques: list[dict]) -> list[EmulationRecord]:
+    def _step_execute(self, run_id: str, resolved_techniques: list[dict[str, Any]]) -> list[EmulationRecord]:
         """EXECUTE step: run Caldera operations and Atomic tests."""
         self.store.update_status(run_id, RunStatus.EXECUTING)
         self.store.start_step(run_id, "EXECUTE")
