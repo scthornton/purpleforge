@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime
+from typing import Any
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -46,7 +47,7 @@ class LimaCharlieClient:
         wait=wait_exponential(min=1, max=60),
         retry=retry_if_exception_type((LimaCharlieRateLimitError, httpx.HTTPStatusError)),
     )
-    def _request(self, method: str, path: str, **kwargs: object) -> httpx.Response:
+    def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
             resp = self._client.request(method, path, **kwargs)
             if resp.status_code == 429:
@@ -56,7 +57,7 @@ class LimaCharlieClient:
         except httpx.ConnectError as e:
             raise LimaCharlieConnectionError(f"Cannot connect to LimaCharlie: {e}") from e
 
-    def get_detections(self, limit: int = 1000) -> list[dict]:
+    def get_detections(self, limit: int = 1000) -> list[dict[str, Any]]:
         """GET /v1/detects — retrieve recent detections."""
         resp = self._request("GET", "/detects", params={"limit": limit})
         data = resp.json()
@@ -64,7 +65,7 @@ class LimaCharlieClient:
 
     def get_detections_by_time_range(
         self, start: datetime, end: datetime, limit: int = 1000
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Get detections filtered to a time range."""
         all_detections = self.get_detections(limit=limit)
         return [
@@ -73,8 +74,8 @@ class LimaCharlieClient:
         ]
 
     def search_detections_by_technique(
-        self, technique_id: str, detections: list[dict]
-    ) -> list[dict]:
+        self, technique_id: str, detections: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Filter detections matching a technique ID by tag.
 
         Uses regex pattern from SEC598 UpdateDetections.yml for tag extraction.
@@ -97,12 +98,12 @@ class LimaCharlieClient:
 
         return matches
 
-    def get_detection_rules(self) -> dict:
+    def get_detection_rules(self) -> dict[str, Any]:
         """GET /v1/rules/d — retrieve D&R rules."""
         resp = self._request("GET", "/rules/d")
         return resp.json()  # type: ignore[no-any-return]
 
-    def _detection_in_range(self, detection: dict, start: datetime, end: datetime) -> bool:
+    def _detection_in_range(self, detection: dict[str, Any], start: datetime, end: datetime) -> bool:
         """Check if a detection timestamp falls within [start, end]."""
         ts = detection.get("ts")
         if ts is None:

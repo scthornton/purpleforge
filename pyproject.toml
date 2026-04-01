@@ -35,6 +35,7 @@ dev = [
     "respx>=0.22",
     "ruff>=0.8",
     "mypy>=1.13",
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]

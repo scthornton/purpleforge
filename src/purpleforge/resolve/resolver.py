@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from purpleforge.clients.atomic_runner import AtomicRunner, WinRMConnectionError
 from purpleforge.clients.caldera_client import CalderaClient
@@ -26,7 +27,7 @@ class Resolver:
         """
         # Fetch all abilities once
         abilities = self._caldera.get_abilities()
-        ability_index: dict[str, list[dict]] = {}
+        ability_index: dict[str, list[dict[str, Any]]] = {}
         for ability in abilities:
             tid = ability.get("technique_id", "")
             ability_index.setdefault(tid, []).append(ability)

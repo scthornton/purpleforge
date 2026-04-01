@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import winrm
 
@@ -71,7 +72,7 @@ class AtomicRunner:
 
         return True
 
-    def run_technique(self, technique_id: str) -> dict:
+    def run_technique(self, technique_id: str) -> dict[str, Any]:
         """Execute an Atomic test for a specific technique.
 
         Returns dict with output, status_code, and error.

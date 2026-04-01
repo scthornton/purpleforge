@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from purpleforge.models.evidence import CoverageResult, CoverageStatus
 
@@ -18,7 +19,7 @@ SKIPPED_COLOR = "#ffffff"  # white — not tested
 class HeatmapGenerator:
     """Generate ATT&CK Navigator layer JSON from coverage results."""
 
-    def generate(self, result: CoverageResult) -> dict:
+    def generate(self, result: CoverageResult) -> dict[str, Any]:
         """Build a Navigator v4.5 layer JSON object."""
         techniques = []
 

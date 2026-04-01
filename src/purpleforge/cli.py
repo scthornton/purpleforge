@@ -358,11 +358,9 @@ def list_runs() -> None:
 @cli.command()
 def demo() -> None:
     """Show a sample pipeline run with realistic output (for screenshots/demos)."""
-    import time as _time
-
     console.print(BANNER)
     console.print(f"  [dim]v{__version__}[/dim]  [bold]Evidence-Driven Purple Team Pipeline[/bold]")
-    console.print(f"  [dim]SANS SEC598 | Caldera + Atomic Red Team + LimaCharlie[/dim]")
+    console.print("  [dim]SANS SEC598 | Caldera + Atomic Red Team + LimaCharlie[/dim]")
     console.print()
 
     run_id = "a3f7c2e1"

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -86,7 +87,7 @@ class AdvisoryGenerator:
 
     def generate_batch(
         self,
-        missed_techniques: list[dict],
+        missed_techniques: list[dict[str, Any]],
     ) -> list[AdvisoryRule]:
         """Generate advisory rules for all missed techniques. Failures are logged and skipped."""
         rules: list[AdvisoryRule] = []

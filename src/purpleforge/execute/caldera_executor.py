@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from purpleforge.clients.caldera_client import CalderaClient, CalderaOperationTimeoutError
 from purpleforge.models.emulation import EmulationMethod, EmulationRecord, EmulationStatus, ResolvedTechnique
@@ -83,7 +84,7 @@ class CalderaExecutor:
 
     def _extract_results(
         self,
-        operation: dict,
+        operation: dict[str, Any],
         techniques: list[ResolvedTechnique],
         start_time: datetime | None = None,
     ) -> list[EmulationRecord]:
@@ -93,7 +94,7 @@ class CalderaExecutor:
         start = start_time or now
 
         # Build a map from technique_id to link results
-        link_map: dict[str, dict] = {}
+        link_map: dict[str, dict[str, Any]] = {}
         for link in chain:
             ability = link.get("ability", {})
             tid = ability.get("technique_id", "")

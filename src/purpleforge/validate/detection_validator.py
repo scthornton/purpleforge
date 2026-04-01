@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from purpleforge.clients.limacharlie_client import LimaCharlieClient
 from purpleforge.models.emulation import EmulationRecord, EmulationStatus
@@ -50,7 +51,7 @@ class DetectionValidator:
         failed = [r for r in records if r.status != EmulationStatus.SUCCESS]
 
         # Query detections only if there are successful emulations
-        all_detections: list[dict] = []
+        all_detections: list[dict[str, Any]] = []
         if successful:
             earliest_start = min(r.start_time for r in successful)
             latest_end = max(r.end_time or r.start_time for r in successful)
@@ -90,7 +91,7 @@ class DetectionValidator:
     def _build_chain(
         self,
         record: EmulationRecord,
-        all_detections: list[dict],
+        all_detections: list[dict[str, Any]],
         detection_wait: int,
     ) -> EvidenceChain:
         """Build an evidence chain for a single emulated technique."""
@@ -222,7 +223,7 @@ class DetectionValidator:
             return DetectionConfidence.LOW, CoverageStatus.PARTIAL
         return DetectionConfidence.NONE, CoverageStatus.MISSED
 
-    def _in_window(self, detection: dict, start: datetime, end: datetime) -> bool:
+    def _in_window(self, detection: dict[str, Any], start: datetime, end: datetime) -> bool:
         """Check if detection falls within the query window."""
         ts = detection.get("ts")
         if ts is None:
