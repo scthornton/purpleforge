@@ -48,3 +48,6 @@ coverage.xml
 
 # ruff
 .ruff_cache/
+
+# Claude Code local artifacts
+.claude/
