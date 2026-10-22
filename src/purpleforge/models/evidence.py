@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 class MatchType(StrEnum):
     EXACT_TECHNIQUE = "exact_technique"
     PARENT_TECHNIQUE = "parent_technique"
+    CHILD_TECHNIQUE = "child_technique"
     TIME_CORRELATION = "time_correlation"
     NONE = "none"
 

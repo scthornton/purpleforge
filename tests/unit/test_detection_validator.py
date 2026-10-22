@@ -97,3 +97,57 @@ class TestDetectionValidator:
         alert = chains[0].matching_alerts[0]
         assert alert.alert_id != ""
         assert alert.match_type == MatchType.EXACT_TECHNIQUE
+
+
+class TestTimestampFormats:
+    def test_millisecond_timestamps_are_in_window(self, mock_lc: MagicMock) -> None:
+        mock_lc.get_detections_by_time_range.return_value = [{**d, "ts": d["ts"] * 1000} for d in DETECTIONS]
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1059.001")])
+        assert chains[0].status == CoverageStatus.DETECTED
+        assert chains[0].matching_alerts[0].alert_timestamp == datetime.fromtimestamp(1711900000, tz=UTC)
+
+    def test_iso_string_timestamps_are_in_window(self, mock_lc: MagicMock) -> None:
+        iso = [{**DETECTIONS[0], "ts": "2024-03-31T15:46:40Z"}]
+        mock_lc.get_detections_by_time_range.return_value = iso
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1059.001")])
+        assert chains[0].status == CoverageStatus.DETECTED
+        assert chains[0].matching_alerts[0].alert_timestamp == datetime.fromtimestamp(1711900000, tz=UTC)
+
+    def test_unparseable_timestamp_is_excluded_not_fatal(self, mock_lc: MagicMock) -> None:
+        mock_lc.get_detections_by_time_range.return_value = [{**DETECTIONS[0], "ts": "garbage"}]
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1059.001")])
+        assert chains[0].status == CoverageStatus.MISSED
+        assert chains[0].matching_alerts == []
+
+
+class TestChildTechniqueMatch:
+    def test_child_tag_detects_parent_emulation(self, mock_lc: MagicMock) -> None:
+        mock_lc.get_detections_by_time_range.return_value = [
+            {
+                "detect_id": "lc-child",
+                "ts": 1711900060,
+                "detect_mtd": {"description": "Scheduled task persistence", "tags": ["attack.t1053.005"]},
+                "detect": {},
+            }
+        ]
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1053")])
+        assert chains[0].status == CoverageStatus.DETECTED
+        assert chains[0].confidence == DetectionConfidence.HIGH
+        assert chains[0].best_match_type == MatchType.CHILD_TECHNIQUE
+        assert chains[0].matching_alerts[0].matched_tag == "attack.t1053.005"
+        assert "sub-technique" in chains[0].reconciliation_note
+        assert chains[0].parent_technique_checked == ""
+
+    def test_exact_outranks_child_across_alerts(self, mock_lc: MagicMock) -> None:
+        child = {"detect_id": "a", "ts": 1711900060, "detect_mtd": {"description": "x", "tags": ["t1053.005"]}}
+        exact = {"detect_id": "b", "ts": 1711900070, "detect_mtd": {"description": "y", "tags": ["t1053"]}}
+        mock_lc.get_detections_by_time_range.return_value = [child, exact]
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1053")])
+        assert chains[0].best_match_type == MatchType.EXACT_TECHNIQUE
+        assert len(chains[0].matching_alerts) == 2
+        assert chains[0].reconciliation_note == ""

@@ -1,9 +1,9 @@
-"""Detection validator — queries LimaCharlie and builds evidence chains."""
+"""Detection validator: queries LimaCharlie and builds evidence chains."""
 
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from purpleforge.clients.limacharlie_client import LimaCharlieClient
@@ -15,8 +15,18 @@ from purpleforge.models.evidence import (
     EvidenceChain,
     MatchType,
 )
+from purpleforge.timeutil import parse_timestamp
 
 logger = logging.getLogger(__name__)
+
+# Higher is a stronger match. Used to pick best_match_type across several alerts.
+MATCH_PRIORITY: dict[MatchType, int] = {
+    MatchType.EXACT_TECHNIQUE: 4,
+    MatchType.CHILD_TECHNIQUE: 3,
+    MatchType.PARENT_TECHNIQUE: 2,
+    MatchType.TIME_CORRELATION: 1,
+    MatchType.NONE: 0,
+}
 
 
 class DetectionValidator:
@@ -37,11 +47,11 @@ class DetectionValidator:
         Args:
             records: Emulation results for all techniques.
             detection_wait: Seconds waited for detection propagation.
-            technique_metadata: Optional map of technique_id → {"name": ..., "tactic": ...}
+            technique_metadata: Optional map of technique_id to {"name": ..., "tactic": ...}
                 to populate human-readable fields in evidence chains.
 
         Successful emulations are validated against LimaCharlie detections.
-        Failed/timed-out/error emulations get chains with MISSED status so they
+        Failed, timed-out, and error emulations get chains with MISSED status so they
         remain in the coverage denominator rather than silently disappearing.
         """
         chains: list[EvidenceChain] = []
@@ -66,7 +76,7 @@ class DetectionValidator:
             self._apply_metadata(chain, meta)
             chains.append(chain)
 
-        # Include failed/timed-out/error emulations as MISSED so they count
+        # Include failed, timed-out, and error emulations as MISSED so they count
         # in the coverage denominator instead of vanishing
         for record in failed:
             chain = self._build_failed_chain(record)
@@ -101,7 +111,7 @@ class DetectionValidator:
         # Filter detections to this technique's query window
         windowed = [d for d in all_detections if self._in_window(d, query_start, query_end)]
 
-        # Search by technique tag (exact, then parent)
+        # Search by technique tag (exact, then child or parent)
         tag_matches = self._client.search_detections_by_technique(tid, windowed)
 
         # Build detection matches
@@ -110,14 +120,10 @@ class DetectionValidator:
 
         for m in tag_matches:
             match_type = MatchType(m["_match_type"])
-            ts = m.get("ts", 0)
-            alert_time = (
-                datetime.fromtimestamp(ts, tz=UTC) if isinstance(ts, int | float) else datetime.fromisoformat(str(ts))
-            )
             matching_alerts.append(
                 DetectionMatch(
                     alert_id=m.get("detect_id", ""),
-                    alert_timestamp=alert_time,
+                    alert_timestamp=self._alert_time(m, start),
                     rule_name=m.get("detect_mtd", {}).get("description", "Unknown"),
                     matched_tag=m["_matched_tag"],
                     match_type=match_type,
@@ -125,25 +131,17 @@ class DetectionValidator:
                     raw_alert=m.get("detect", {}),
                 )
             )
-            if match_type == MatchType.EXACT_TECHNIQUE:
-                best_match = MatchType.EXACT_TECHNIQUE
-            elif match_type == MatchType.PARENT_TECHNIQUE and best_match != MatchType.EXACT_TECHNIQUE:
-                best_match = MatchType.PARENT_TECHNIQUE
+            if MATCH_PRIORITY[match_type] > MATCH_PRIORITY[best_match]:
+                best_match = match_type
 
         # If no tag matches, check for time correlation
         if not matching_alerts and windowed:
             best_match = MatchType.TIME_CORRELATION
             for d in windowed[:3]:  # Max 3 time-correlated detections
-                ts = d.get("ts", 0)
-                alert_time = (
-                    datetime.fromtimestamp(ts, tz=UTC)
-                    if isinstance(ts, int | float)
-                    else datetime.fromisoformat(str(ts))
-                )
                 matching_alerts.append(
                     DetectionMatch(
                         alert_id=d.get("detect_id", ""),
-                        alert_timestamp=alert_time,
+                        alert_timestamp=self._alert_time(d, start),
                         rule_name=d.get("detect_mtd", {}).get("description", "Unknown"),
                         matched_tag="",
                         match_type=MatchType.TIME_CORRELATION,
@@ -159,6 +157,9 @@ class DetectionValidator:
         if best_match == MatchType.PARENT_TECHNIQUE and "." in tid:
             parent_checked = tid[:5]
             reconciliation = f"Matched parent {parent_checked} for sub-technique {tid}"
+        elif best_match == MatchType.CHILD_TECHNIQUE:
+            child_tag = next(a.matched_tag for a in matching_alerts if a.match_type == MatchType.CHILD_TECHNIQUE)
+            reconciliation = f"Matched sub-technique tag {child_tag} for parent technique {tid}"
 
         return EvidenceChain(
             technique_id=tid,
@@ -179,7 +180,7 @@ class DetectionValidator:
         )
 
     def _build_failed_chain(self, record: EmulationRecord) -> EvidenceChain:
-        """Build an evidence chain for a failed/timed-out/error emulation.
+        """Build an evidence chain for a failed, timed-out, or error emulation.
 
         These get MISSED status so they stay in the coverage denominator.
         """
@@ -208,7 +209,7 @@ class DetectionValidator:
 
     def _classify(self, match_type: MatchType) -> tuple[DetectionConfidence, CoverageStatus]:
         """Assign confidence and coverage status based on match type."""
-        if match_type == MatchType.EXACT_TECHNIQUE:
+        if match_type in (MatchType.EXACT_TECHNIQUE, MatchType.CHILD_TECHNIQUE):
             return DetectionConfidence.HIGH, CoverageStatus.DETECTED
         if match_type == MatchType.PARENT_TECHNIQUE:
             return DetectionConfidence.MEDIUM, CoverageStatus.PARTIAL
@@ -216,13 +217,25 @@ class DetectionValidator:
             return DetectionConfidence.LOW, CoverageStatus.PARTIAL
         return DetectionConfidence.NONE, CoverageStatus.MISSED
 
+    @staticmethod
+    def _alert_time(detection: dict[str, Any], fallback: datetime) -> datetime:
+        """Parse the detection timestamp, falling back to the emulation start when absent or malformed."""
+        ts = detection.get("ts")
+        if ts is None:
+            return fallback
+        try:
+            return parse_timestamp(ts)
+        except ValueError:
+            logger.warning("Detection %s has an unparseable timestamp %r", detection.get("detect_id"), ts)
+            return fallback
+
     def _in_window(self, detection: dict[str, Any], start: datetime, end: datetime) -> bool:
-        """Check if detection falls within the query window."""
+        """Check if detection falls within the query window. Unparseable timestamps are excluded."""
         ts = detection.get("ts")
         if ts is None:
             return False
-        if isinstance(ts, int | float):
-            det_time = datetime.fromtimestamp(ts, tz=UTC)
-        else:
-            det_time = datetime.fromisoformat(str(ts))
+        try:
+            det_time = parse_timestamp(ts)
+        except ValueError:
+            return False
         return start <= det_time <= end
