@@ -309,6 +309,7 @@ def deploy_draft(run_id: str, technique: str, target: str) -> None:
         gh = GitHubClient(
             token=settings.github_token.get_secret_value(),
             repo=settings.detection_repo,
+            base_url=settings.github_base_url,
         )
         branch = f"purpleforge/{run_id}/{technique}"
         gh.create_branch(branch)
