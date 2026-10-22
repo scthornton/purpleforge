@@ -13,6 +13,7 @@ from purpleforge.validation import validate_run_id, validate_technique_id
 
 if TYPE_CHECKING:
     from purpleforge.config import PurpleForgeSettings
+    from purpleforge.pipeline.orchestrator import PipelineOrchestrator
     from purpleforge.pipeline.run_store import RunStore
 
 console = Console()
@@ -35,6 +36,29 @@ def _load_store() -> RunStore:
     from purpleforge.pipeline.run_store import RunStore
 
     return RunStore(_load_settings().run_base_dir)
+
+
+def _print_run_summary(orchestrator: PipelineOrchestrator, settings: PurpleForgeSettings, run_id: str) -> float | None:
+    """Print the coverage summary for a finished run. Returns the lenient coverage percent."""
+    try:
+        report_data = orchestrator.store.read_artifact(run_id, "coverage_report.json")
+    except Exception:
+        console.print(f"[green]Run {run_id} complete.[/green]")
+        return None
+
+    pct = report_data.get("coverage_pct", 0)
+    d = report_data.get("detected_count", 0)
+    p = report_data.get("partial_count", 0)
+    m = report_data.get("missed_count", 0)
+    s = report_data.get("skipped_count", 0)
+    console.print()
+    console.print(f"[bold green]Run {run_id} complete.[/bold green]")
+    console.print(f"  Coverage: [bold]{pct}%[/bold]")
+    console.print(
+        f"  Detected: [green]{d}[/green] | Partial: [yellow]{p}[/yellow] | Missed: [red]{m}[/red] | Skipped: {s}"
+    )
+    console.print(f"  Reports at: [bold]{settings.run_base_dir}/{run_id}/[/bold]")
+    return float(pct) if pct is not None else None
 
 
 @click.group()
@@ -168,29 +192,49 @@ def confirm(run_id: str, ttps_file: str | None, min_coverage: float | None) -> N
         console.print(f"[red]Pipeline error: {e}[/red]")
         raise SystemExit(1)
 
-    # Show results summary and apply the optional coverage gate.
-    pct: float | None = None
-    try:
-        report_data = orchestrator.store.read_artifact(run_id, "coverage_report.json")
-        pct = report_data.get("coverage_pct", 0)
-        d = report_data.get("detected_count", 0)
-        p = report_data.get("partial_count", 0)
-        m = report_data.get("missed_count", 0)
-        s = report_data.get("skipped_count", 0)
-        console.print()
-        console.print(f"[bold green]Run {run_id} complete.[/bold green]")
-        console.print(f"  Coverage: [bold]{pct}%[/bold]")
-        console.print(
-            f"  Detected: [green]{d}[/green] | Partial: [yellow]{p}[/yellow] | Missed: [red]{m}[/red] | Skipped: {s}"
-        )
-        run_dir = f"{settings.run_base_dir}/{run_id}"
-        console.print(f"  Reports at: [bold]{run_dir}/[/bold]")
-    except Exception:
-        console.print(f"[green]Run {run_id} complete.[/green]")
+    pct = _print_run_summary(orchestrator, settings, run_id)
 
     if min_coverage is not None and pct is not None and pct < min_coverage:
         console.print(f"[red]Coverage {pct}% is below the required {min_coverage}%.[/red]")
         raise SystemExit(3)
+
+
+@cli.command()
+@click.option("--run-id", required=True, help="Run ID to resume")
+def resume(run_id: str) -> None:
+    """Resume a failed or interrupted run from its first incomplete step."""
+    validate_run_id(run_id)
+
+    from purpleforge.config import ConfigError
+
+    settings = _load_settings()
+    try:
+        settings.require_caldera()
+        settings.require_limacharlie()
+        settings.require_winrm()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+
+    from purpleforge.pipeline.orchestrator import PipelineError, PipelineOrchestrator
+    from purpleforge.pipeline.run_store import RunLockedError
+
+    orchestrator = PipelineOrchestrator(settings)
+
+    try:
+        console.print(f"Resuming run [bold]{run_id}[/bold]")
+        orchestrator.resume_run(run_id)
+    except RunLockedError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+    except PipelineError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
+    except Exception as e:
+        console.print(f"[red]Pipeline error: {e}[/red]")
+        raise SystemExit(1)
+
+    _print_run_summary(orchestrator, settings, run_id)
 
 
 @cli.command()

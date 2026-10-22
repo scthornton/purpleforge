@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +13,12 @@ from typing import Any
 import yaml
 
 from purpleforge.models.pipeline import PipelineRun, PipelineStep, RunStatus, StepStatus
+
+LOCK_FILENAME = ".lock"
+
+
+class RunLockedError(Exception):
+    """Raised when a run already holds a lock, so a second process may not run it."""
 
 
 class RunStore:
@@ -21,6 +30,39 @@ class RunStore:
 
     def _run_dir(self, run_id: str) -> Path:
         return self.base_dir / run_id
+
+    def _lock_path(self, run_id: str) -> Path:
+        return self._run_dir(run_id) / LOCK_FILENAME
+
+    def acquire_lock(self, run_id: str) -> Path:
+        """Create a lock file for the run. Raise RunLockedError if one already exists."""
+        run_dir = self._run_dir(run_id)
+        run_dir.mkdir(parents=True, exist_ok=True)
+        lock_path = self._lock_path(run_id)
+        try:
+            # O_CREAT | O_EXCL fails if the file exists, so the check and create are atomic.
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            raise RunLockedError(
+                f"Run {run_id} is locked by another process ({lock_path}). "
+                f"If no run is in progress, delete the lock file and try again."
+            ) from None
+        with os.fdopen(fd, "w") as f:
+            f.write(f"pid: {os.getpid()}\nacquired_at: {datetime.now(UTC).isoformat()}\n")
+        return lock_path
+
+    def release_lock(self, run_id: str) -> None:
+        """Remove the run's lock file if it exists."""
+        self._lock_path(run_id).unlink(missing_ok=True)
+
+    @contextmanager
+    def locked(self, run_id: str) -> Iterator[None]:
+        """Hold the run lock for the duration of the block, releasing it even on error."""
+        self.acquire_lock(run_id)
+        try:
+            yield
+        finally:
+            self.release_lock(run_id)
 
     def create_run(self, source_path: str, config_snapshot: dict[str, Any] | None = None) -> PipelineRun:
         """Create a new run directory and initialize run_state.yaml."""
