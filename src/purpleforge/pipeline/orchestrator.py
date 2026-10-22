@@ -402,9 +402,18 @@ class PipelineOrchestrator:
         missed = [c for c in chains_data if c.get("status") == "missed"]
 
         if not missed:
-            logger.info("No missed techniques — skipping advisory generation")
+            logger.info("No missed techniques, skipping advisory generation")
             self.store.complete_step(run_id, "ADVISE")
             return
+
+        # Report context for each technique, so the prompt knows what was observed
+        descriptions: dict[str, str] = {}
+        try:
+            ttps_data = self.store.read_artifact(run_id, "confirmed_ttps.yaml")
+            for t in ttps_data.get("techniques", []):
+                descriptions[t["technique_id"]] = t.get("description", "")
+        except FileNotFoundError:
+            logger.warning("confirmed_ttps.yaml not found; advisory prompts will lack report context")
 
         generator = AdvisoryGenerator(
             api_key=self.settings.openai_api_key.get_secret_value(),
@@ -416,6 +425,7 @@ class PipelineOrchestrator:
                 "technique_id": m["technique_id"],
                 "technique_name": m.get("technique_name", ""),
                 "tactic": m.get("tactic", ""),
+                "description": descriptions.get(m["technique_id"], ""),
             }
             for m in missed
         ]
