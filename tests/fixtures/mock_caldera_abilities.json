@@ -1,11 +1,11 @@
 [
   {"ability_id": "abc-001", "technique_id": "T1059", "technique_name": "Command and Scripting Interpreter", "name": "Run PowerShell", "tactic": "execution"},
-  {"ability_id": "abc-002", "technique_id": "T1059.001", "technique_name": "PowerShell", "name": "PowerShell Encoded Command", "tactic": "execution"},
+  {"ability_id": "abc-002", "technique_id": "T1059.001", "technique_name": "PowerShell", "name": "PowerShell Encoded Command", "tactic": "execution", "executors": [{"platform": "windows", "name": "psh"}]},
   {"ability_id": "def-001", "technique_id": "T1053", "technique_name": "Scheduled Task/Job", "name": "Create Scheduled Task", "tactic": "persistence"},
   {"ability_id": "def-002", "technique_id": "T1053.005", "technique_name": "Scheduled Task", "name": "Schtasks Persistence", "tactic": "persistence"},
   {"ability_id": "ghi-001", "technique_id": "T1083", "technique_name": "File and Directory Discovery", "name": "File Discovery", "tactic": "discovery"},
   {"ability_id": "jkl-001", "technique_id": "T1105", "technique_name": "Ingress Tool Transfer", "name": "Download File", "tactic": "command-and-control"},
-  {"ability_id": "mno-001", "technique_id": "T1071", "technique_name": "Application Layer Protocol", "name": "HTTP C2", "tactic": "command-and-control"},
+  {"ability_id": "mno-001", "technique_id": "T1071", "technique_name": "Application Layer Protocol", "name": "HTTP C2", "tactic": "command-and-control", "executors": [{"platform": "linux", "name": "sh"}]},
   {"ability_id": "pqr-001", "technique_id": "T1547.001", "technique_name": "Registry Run Keys", "name": "Registry Run Key", "tactic": "persistence"},
   {"ability_id": "stu-001", "technique_id": "T1082", "technique_name": "System Information Discovery", "name": "System Info", "tactic": "discovery"},
   {"ability_id": "vwx-001", "technique_id": "T1018", "technique_name": "Remote System Discovery", "name": "Net View", "tactic": "discovery"}

@@ -20,6 +20,8 @@ ABILITIES = json.loads((FIXTURES / "mock_caldera_abilities.json").read_text())
 def mock_caldera() -> MagicMock:
     client = MagicMock()
     client.get_abilities.return_value = ABILITIES
+    # No agents by default: platforms are unknown, so abilities are not filtered.
+    client.get_agents.return_value = []
     return client
 
 
@@ -106,3 +108,54 @@ class TestResolver:
 
         assert plan.techniques[0].method == EmulationMethod.SKIP
         mock_atomic.ensure_atomic_installed.assert_not_called()
+
+
+class TestPlatformAwareResolution:
+    def test_windows_ability_resolves_for_windows_agent(self, mock_caldera: MagicMock, mock_atomic: MagicMock) -> None:
+        """A windows ability is chosen when a windows agent is connected."""
+        mock_caldera.get_agents.return_value = [{"paw": "a1", "platform": "windows"}]
+        resolver = Resolver(mock_caldera, mock_atomic)
+        plan = resolver.resolve([_technique("T1059.001", "PowerShell")], "test-run")
+
+        assert plan.techniques[0].method == EmulationMethod.CALDERA
+        assert plan.techniques[0].ability_id == "abc-002"
+
+    def test_linux_only_ability_falls_through_for_windows_agent(
+        self, mock_caldera: MagicMock, mock_atomic: MagicMock
+    ) -> None:
+        """A linux-only ability is not chosen for a windows agent; it skips."""
+        mock_caldera.get_agents.return_value = [{"paw": "a1", "platform": "windows"}]
+        mock_atomic.check_technique_available.return_value = False
+        resolver = Resolver(mock_caldera, mock_atomic)
+        plan = resolver.resolve([_technique("T1071", "Application Layer Protocol")], "test-run")
+
+        assert plan.techniques[0].method == EmulationMethod.SKIP
+        assert plan.skip_count == 1
+
+    def test_linux_only_ability_falls_through_to_atomic(self, mock_caldera: MagicMock, mock_atomic: MagicMock) -> None:
+        """A rejected Caldera ability falls through to an available Atomic test."""
+        mock_caldera.get_agents.return_value = [{"paw": "a1", "platform": "windows"}]
+        mock_atomic.check_technique_available.return_value = True
+        resolver = Resolver(mock_caldera, mock_atomic)
+        plan = resolver.resolve([_technique("T1071", "Application Layer Protocol")], "test-run")
+
+        assert plan.techniques[0].method == EmulationMethod.ATOMIC
+        assert plan.atomic_count == 1
+
+    def test_ability_without_executors_still_resolves(self, mock_caldera: MagicMock, mock_atomic: MagicMock) -> None:
+        """An ability with no executor platform data keeps resolving (backward compatible)."""
+        mock_caldera.get_agents.return_value = [{"paw": "a1", "platform": "windows"}]
+        resolver = Resolver(mock_caldera, mock_atomic)
+        plan = resolver.resolve([_technique("T1053.005", "Scheduled Task")], "test-run")
+
+        assert plan.techniques[0].method == EmulationMethod.CALDERA
+        assert plan.techniques[0].ability_id == "def-002"
+
+    def test_no_agents_falls_back_to_first_match(self, mock_caldera: MagicMock, mock_atomic: MagicMock) -> None:
+        """With no connected agents, platforms are unknown and abilities are not filtered."""
+        mock_caldera.get_agents.return_value = []
+        resolver = Resolver(mock_caldera, mock_atomic)
+        plan = resolver.resolve([_technique("T1071", "Application Layer Protocol")], "test-run")
+
+        assert plan.techniques[0].method == EmulationMethod.CALDERA
+        assert plan.techniques[0].ability_id == "mno-001"
