@@ -57,19 +57,27 @@ object), and test depth for the CLI plus a higher coverage gate are folded into 
 
 | Item | Finding | Status | PR |
 |---|---|---|---|
-| Settings split, no silent fallback, `purpleforge doctor` | F16 | open | |
-| Identifier validation in CLI | F15 | open | |
-| Logging, audit fields, `schema_version`, manifest | F20 | open | |
-| Per-step resume and lock file | F19 | open | |
-| `run --ttps` input; LLM optional | F22 | open | |
-| GitHub Enterprise, base branch, update-or-create | F17 | open | |
-| `--min-coverage` gate and `--json` outputs | new | open | |
-| Lockfile, pip-audit in CI, Dependabot, pre-commit | F24 (rest) | open | |
-| Test depth for the CLI; raise coverage gate toward 85% | F23 (rest) | open | |
-| Persist the Caldera operation report | F21 (rest) | open | |
-| Platform-aware Caldera ability selection | F8 (rest) | open | |
-| README rewrite, threat model, operations guide | F25 | open | |
-| Remove `demo` command | F26 | open | |
+| Settings split, no silent fallback, `purpleforge doctor` | F16 | done | #28 |
+| Identifier validation in CLI | F15 | done | #29 |
+| Logging, audit fields, `schema_version`, manifest | F20 | done | #31 |
+| Per-step resume and lock file | F19 | done | #30 |
+| `run --ttps` input; LLM optional | F22 | done | #29 |
+| GitHub Enterprise, base branch, update-or-create | F17 | done | #24 |
+| `--min-coverage` gate and `--json` outputs | new | done | #29 |
+| Lockfile, pip-audit in CI, Dependabot, pre-commit | F24 (rest) | done | #27, #32 |
+| Test depth for the CLI; raise coverage gate to 80% | F23 (rest) | done | #29, #32 |
+| Persist the Caldera operation report | F21 (rest) | done | #31 |
+| Platform-aware Caldera ability selection | F8 (rest) | done | #26 |
+| README rewrite, threat model, operations guide | F25 | done | #25 |
+| Remove `demo` command | F26 | done | #29 |
+
+All three phases of the plan are merged. The coverage floor is 80% (actual coverage is about 87%),
+runtime dependencies are 40 packages with no known advisories, and CI enforces lint, format, type
+checks, tests on Python 3.11 to 3.13, a current lockfile, a dependency audit, and a wheel install
+smoke test. The only remaining exit step is the Phase 0 live lab run from a wheel install, which
+needs a Caldera server, a LimaCharlie organization, and a Windows WinRM target. One design note from
+F19 is open by choice: per-step CLI commands were not added because `resume` covers the operational
+need; the lock is a cooperative single-host file lock, not a network-filesystem lock.
 
 ## Progress log
 
@@ -83,5 +91,16 @@ object), and test depth for the CLI plus a higher coverage gate are folded into 
 | 2026-10-22 | #16 | Report template packaged in the wheel; Sigma draft validation and typed confidence. |
 | 2026-10-22 | #13, #14 | Dependabot bumped the GitHub Actions `checkout` and `setup-uv` versions. |
 | 2026-10-22 | #20 | Atomic runner hardened: pinned opt-in installer, read-only resolve, per-test timeout, cleanup after each test, TLS transport. |
+| 2026-10-22 | #21 | Time correlation and failed emulations no longer inflate coverage; inconclusive status added; raw detections snapshot persisted. |
+| 2026-10-22 | #22 | LangChain and ChromaDB replaced with the OpenAI SDK (136 to 40 runtime packages); extraction confidence and source excerpt reach the review gate. |
+| 2026-10-22 | #24 | GitHub client supports Enterprise Server, the repo default branch, and safe re-runs. |
+| 2026-10-22 | #25 | README rewritten for enterprise use; architecture, threat model, and operations pages added. |
+| 2026-10-22 | #26 | Caldera ability selection filters by connected agent platform. |
+| 2026-10-22 | #27 | Ruff and mypy pinned to exact versions for deterministic formatting. |
+| 2026-10-22 | #28 | Credentials validated per step with clear errors; silent fallback removed; `doctor` command added. |
+| 2026-10-22 | #29 | `run --ttps` (LLM optional), `--json` output, `--min-coverage` gate, identifier validation; `demo` command removed. |
+| 2026-10-22 | #30 | Runs resume from the last completed step under a per-run lock file. |
+| 2026-10-22 | #31 | Logging to a per-run log, audit fields and schema version, SHA-256 manifest, and the Caldera operation report persisted. |
+| 2026-10-22 | #32 | Committed lockfile with a drift check, a pip-audit security job, and an 80% coverage floor. |
 | 2026-10-22 | #21 | Time correlation and failed emulations no longer inflate coverage; inconclusive status added; raw detections snapshot persisted. |
 | 2026-10-22 | #22 | LangChain and ChromaDB replaced with the OpenAI SDK (136 to 40 runtime packages); extraction confidence and source excerpt reach the review gate. |
