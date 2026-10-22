@@ -18,6 +18,7 @@
   .detected .value { color: #a1d99b; }
   .partial .value { color: #fee08b; }
   .missed .value { color: #fc8d59; }
+  .inconclusive .value { color: #cccccc; }
   .skipped .value { color: #888; }
   .coverage .value { color: #c084fc; }
   table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
@@ -27,6 +28,7 @@
   .status-detected { color: #a1d99b; font-weight: bold; }
   .status-partial { color: #fee08b; font-weight: bold; }
   .status-missed { color: #fc8d59; font-weight: bold; }
+  .status-inconclusive { color: #cccccc; font-weight: bold; }
   .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; }
   .badge-high { background: #1a472a; color: #a1d99b; }
   .badge-medium { background: #4a3f00; color: #fee08b; }
@@ -57,11 +59,17 @@
     <div class="value">{{ missed_count }}</div>
     <div class="label">Missed</div>
   </div>
+  <div class="stat inconclusive">
+    <div class="value">{{ inconclusive_count }}</div>
+    <div class="label">Inconclusive</div>
+  </div>
   <div class="stat skipped">
     <div class="value">{{ skipped_count }}</div>
     <div class="label">Skipped</div>
   </div>
 </div>
+<p class="meta">Strict coverage (detected only): {{ strict_coverage_pct }}%. Inconclusive and skipped
+techniques are excluded from both coverage figures.</p>
 
 <h2>Evidence Table</h2>
 <table>

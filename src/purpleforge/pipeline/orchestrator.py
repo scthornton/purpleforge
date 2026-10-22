@@ -336,6 +336,10 @@ class PipelineOrchestrator:
             technique_metadata=technique_metadata,
         )
 
+        # Persist the raw detections fetched for the window so a "missed" claim can
+        # be re-audited offline later without tenant access.
+        self.store.write_artifact(run_id, "detections_snapshot.json", validator.fetched_detections)
+
         # Write evidence chains
         chains_data = [json.loads(c.model_dump_json()) for c in chains]
         self.store.write_artifact(run_id, "evidence_chains.json", chains_data)
@@ -384,11 +388,12 @@ class PipelineOrchestrator:
 
         self.store.complete_step(run_id, "REPORT", artifact_path="coverage_report.json")
         logger.info(
-            "Report: coverage=%.1f%% (D:%d P:%d M:%d S:%d)",
+            "Report: coverage=%.1f%% (D:%d P:%d M:%d I:%d S:%d)",
             result.coverage_pct,
             result.detected_count,
             result.partial_count,
             result.missed_count,
+            result.inconclusive_count,
             result.skipped_count,
         )
 

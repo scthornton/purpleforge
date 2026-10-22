@@ -67,9 +67,9 @@ class TestDetectionValidator:
         assert chains[0].status == CoverageStatus.MISSED
         assert chains[0].confidence == DetectionConfidence.NONE
 
-    def test_failed_records_included_as_missed(self, mock_lc: MagicMock) -> None:
-        """Failed emulations should appear in evidence chains as MISSED,
-        not disappear from coverage math entirely."""
+    def test_failed_records_are_inconclusive(self, mock_lc: MagicMock) -> None:
+        """A failed emulation is inconclusive: the control was never exercised,
+        so the run cannot call it a detection gap."""
         now = datetime.now(UTC)
         failed = EmulationRecord(
             technique_id="T1059.001",
@@ -80,9 +80,39 @@ class TestDetectionValidator:
         validator = DetectionValidator(mock_lc, query_buffer=60)
         chains = validator.validate([failed])
         assert len(chains) == 1
-        assert chains[0].status == CoverageStatus.MISSED
+        assert chains[0].status == CoverageStatus.INCONCLUSIVE
         assert chains[0].confidence == DetectionConfidence.NONE
         assert "failed" in chains[0].reconciliation_note.lower()
+
+    def test_time_correlated_only_is_missed_with_unattributed(self, mock_lc: MagicMock) -> None:
+        """A technique with no tag match stays MISSED even when unrelated activity
+        sits in its window; that activity is recorded as unattributed context."""
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1071")])
+        assert len(chains) == 1
+        chain = chains[0]
+        assert chain.status == CoverageStatus.MISSED
+        assert chain.matching_alerts == []
+        assert len(chain.unattributed_alerts) > 0
+        assert chain.best_match_type == MatchType.NONE
+
+    def test_alert_attributed_elsewhere_is_not_unattributed(self, mock_lc: MagicMock) -> None:
+        """An alert that tag-matches one technique is not reported as unattributed
+        context on another technique in the same window."""
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        chains = validator.validate([_record("T1059.001"), _record("T1071")])
+        by_id = {c.technique_id: c for c in chains}
+        attributed_ids = {a.alert_id for a in by_id["T1059.001"].matching_alerts}
+        assert attributed_ids
+        unattributed_ids = {a.alert_id for a in by_id["T1071"].unattributed_alerts}
+        assert attributed_ids.isdisjoint(unattributed_ids)
+
+    def test_fetched_detections_exposed_for_snapshot(self, mock_lc: MagicMock) -> None:
+        """The validator keeps the raw detections it fetched so the caller can
+        persist a snapshot for offline re-auditing."""
+        validator = DetectionValidator(mock_lc, query_buffer=60)
+        validator.validate([_record("T1059.001")])
+        assert validator.fetched_detections == DETECTIONS
 
     def test_multiple_techniques(self, mock_lc: MagicMock) -> None:
         records = [_record("T1059.001"), _record("T1003.001")]

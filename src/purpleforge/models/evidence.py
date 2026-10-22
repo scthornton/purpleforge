@@ -1,4 +1,4 @@
-"""Evidence chain models — the core data structure backing all coverage claims."""
+"""Evidence chain models: the core data structure backing all coverage claims."""
 
 from __future__ import annotations
 
@@ -30,6 +30,7 @@ class CoverageStatus(StrEnum):
     DETECTED = "detected"
     PARTIAL = "partial"
     MISSED = "missed"
+    INCONCLUSIVE = "inconclusive"
 
 
 class DetectionMatch(BaseModel):
@@ -72,7 +73,11 @@ class EvidenceChain(BaseModel):
     best_match_type: MatchType = MatchType.NONE
     confidence: DetectionConfidence = DetectionConfidence.NONE
 
-    # Classification — uses enum instead of bare string
+    # Activity in this technique's window that did not tag-match any emulated
+    # technique. Context for an analyst only; it never counts toward coverage.
+    unattributed_alerts: list[DetectionMatch] = Field(default_factory=list)
+
+    # Classification, held as an enum rather than a bare string
     status: CoverageStatus = CoverageStatus.MISSED
 
     # Reconciliation
@@ -90,23 +95,28 @@ class CoverageResult(BaseModel):
     partial_count: int
     missed_count: int
     skipped_count: int
+    inconclusive_count: int = 0
     coverage_pct: float
     strict_coverage_pct: float
     evidence_chains: list[EvidenceChain]
     skipped_techniques: list[str] = Field(default_factory=list)
 
     @staticmethod
-    def compute_coverage_pct(detected: int, partial: int, total: int, skipped: int) -> float:
-        """Compute lenient coverage: (detected + partial) / (total - skipped) * 100."""
-        denominator = total - skipped
+    def compute_coverage_pct(detected: int, partial: int, total: int, skipped: int, inconclusive: int = 0) -> float:
+        """Compute lenient coverage: (detected + partial) / (total - skipped - inconclusive) * 100.
+
+        Skipped techniques were never emulated and inconclusive techniques were
+        emulated but failed, so neither belongs in the denominator.
+        """
+        denominator = total - skipped - inconclusive
         if denominator <= 0:
             return 0.0
         return round((detected + partial) / denominator * 100, 1)
 
     @staticmethod
-    def compute_strict_coverage_pct(detected: int, total: int, skipped: int) -> float:
-        """Compute strict coverage: detected / (total - skipped) * 100."""
-        denominator = total - skipped
+    def compute_strict_coverage_pct(detected: int, total: int, skipped: int, inconclusive: int = 0) -> float:
+        """Compute strict coverage: detected / (total - skipped - inconclusive) * 100."""
+        denominator = total - skipped - inconclusive
         if denominator <= 0:
             return 0.0
         return round(detected / denominator * 100, 1)
