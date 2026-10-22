@@ -1,4 +1,4 @@
-"""File-based run state management. No database — all state is YAML/JSON on disk."""
+"""File-based run state management. No database, all state is YAML/JSON on disk."""
 
 from __future__ import annotations
 
@@ -93,7 +93,10 @@ class RunStore:
     def write_artifact(self, run_id: str, filename: str, data: Any) -> Path:
         """Write an artifact (YAML or JSON) to the run directory.
 
-        Uses atomic write (write to .tmp, then rename) to prevent partial files.
+        Uses an atomic write (write to .tmp, then replace) to prevent partial files.
+        Data must be plain YAML/JSON types; dump Pydantic models with
+        model_dump(mode="json") first. Raises yaml.representer.RepresenterError
+        otherwise, so a file that cannot be read back is never written.
         """
         run_dir = self._run_dir(run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -101,12 +104,12 @@ class RunStore:
         tmp = target.with_suffix(target.suffix + ".tmp")
 
         if filename.endswith(".yaml") or filename.endswith(".yml"):
-            content = yaml.dump(data, default_flow_style=False, sort_keys=False)
+            content = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
         else:
             content = json.dumps(data, indent=2, default=str)
 
         tmp.write_text(content)
-        tmp.rename(target)
+        tmp.replace(target)
         return target
 
     def read_artifact(self, run_id: str, filename: str) -> Any:
@@ -142,6 +145,6 @@ class RunStore:
         target = run_dir / "run_state.yaml"
         tmp = target.with_suffix(".yaml.tmp")
         data = json.loads(run.model_dump_json())
-        content = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        content = yaml.safe_dump(data, default_flow_style=False, sort_keys=False)
         tmp.write_text(content)
-        tmp.rename(target)
+        tmp.replace(target)

@@ -100,7 +100,7 @@ class PipelineOrchestrator:
         self.store.write_artifact(
             run_id,
             "confirmed_ttps.yaml",
-            {"techniques": [t.model_dump() for t in techniques]},
+            {"techniques": [t.model_dump(mode="json") for t in techniques]},
         )
 
         # RESOLVE → EXECUTE → WAIT
@@ -228,7 +228,7 @@ class PipelineOrchestrator:
         plan = resolver.resolve(techniques, run_id)
 
         # Write execution plan
-        plan_data = plan.model_dump()
+        plan_data = plan.model_dump(mode="json")
         self.store.write_artifact(run_id, "execution_plan.yaml", plan_data)
         self.store.complete_step(run_id, "RESOLVE", artifact_path="execution_plan.yaml")
 
@@ -281,7 +281,7 @@ class PipelineOrchestrator:
             all_records.extend(executor_atomic.execute(atomic_techs))
 
         # Write results
-        results_data = [r.model_dump() for r in all_records]
+        results_data = [r.model_dump(mode="json") for r in all_records]
         self.store.write_artifact(run_id, "emulation_results.yaml", {"records": results_data})
         self.store.complete_step(run_id, "EXECUTE", artifact_path="emulation_results.yaml")
 
