@@ -8,6 +8,13 @@ import pytest
 import yaml
 
 from purpleforge.models import RunStatus, StepStatus
+from purpleforge.models.emulation import (
+    EmulationMethod,
+    EmulationRecord,
+    EmulationStatus,
+    ExecutionPlan,
+    ResolvedTechnique,
+)
 from purpleforge.pipeline.run_store import RunStore
 
 
@@ -120,6 +127,53 @@ class TestRunStoreArtifacts:
         run = run_store.create_run("/tmp/test.pdf")
         with pytest.raises(FileNotFoundError, match="not found"):
             run_store.read_artifact(run.run_id, "missing.json")
+
+    def test_execution_plan_round_trip(self, run_store: RunStore) -> None:
+        """Models dumped in json mode come back as plain strings that safe_load accepts."""
+        run = run_store.create_run("/tmp/test.pdf")
+        plan = ExecutionPlan(
+            run_id=run.run_id,
+            techniques=[
+                ResolvedTechnique(
+                    technique_id="T1059.001",
+                    technique_name="PowerShell",
+                    method=EmulationMethod.CALDERA,
+                    ability_id="abc-002",
+                )
+            ],
+            caldera_count=1,
+        )
+        run_store.write_artifact(run.run_id, "execution_plan.yaml", plan.model_dump(mode="json"))
+        loaded = run_store.read_artifact(run.run_id, "execution_plan.yaml")
+        assert loaded["techniques"][0]["method"] == "caldera"
+        assert ExecutionPlan.model_validate(loaded) == plan
+
+    def test_emulation_record_round_trip(self, run_store: RunStore) -> None:
+        run = run_store.create_run("/tmp/test.pdf")
+        record = EmulationRecord(
+            technique_id="T1059.001",
+            method=EmulationMethod.CALDERA,
+            status=EmulationStatus.SUCCESS,
+            execution_id="link-1",
+        )
+        run_store.write_artifact(run.run_id, "emulation_results.yaml", {"records": [record.model_dump(mode="json")]})
+        loaded = run_store.read_artifact(run.run_id, "emulation_results.yaml")
+        assert loaded["records"][0]["status"] == "success"
+        assert EmulationRecord.model_validate(loaded["records"][0]) == record
+
+    def test_write_rejects_non_plain_objects(self, run_store: RunStore) -> None:
+        """A raw enum must fail at write time instead of producing an unreadable file."""
+        run = run_store.create_run("/tmp/test.pdf")
+        with pytest.raises(yaml.representer.RepresenterError):
+            run_store.write_artifact(run.run_id, "bad.yaml", {"method": EmulationMethod.CALDERA})
+        assert not (Path(run_store.base_dir) / run.run_id / "bad.yaml").exists()
+
+    def test_overwrite_existing_artifact(self, run_store: RunStore) -> None:
+        """Path.replace overwrites an existing target on every platform."""
+        run = run_store.create_run("/tmp/test.pdf")
+        run_store.write_artifact(run.run_id, "x.json", {"v": 1})
+        run_store.write_artifact(run.run_id, "x.json", {"v": 2})
+        assert run_store.read_artifact(run.run_id, "x.json") == {"v": 2}
 
     def test_atomic_write_produces_no_tmp_files(self, run_store: RunStore) -> None:
         run = run_store.create_run("/tmp/test.pdf")

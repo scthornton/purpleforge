@@ -78,31 +78,25 @@ class TestTTPExtractor:
 
     @patch("purpleforge.ingest.ttp_extractor.ChatOpenAI")
     def test_invalid_ids_dropped(self, mock_llm_cls: MagicMock) -> None:
-        result = TTPExtractionResult(
-            techniques=[
-                ExtractedTTP(
-                    technique_id="T1059.001",
-                    technique_name="PowerShell",
-                    tactic="Execution",
-                    description="Valid",
-                    confidence=Confidence.HIGH,
-                ),
-            ]
+        """An ID that slips past schema validation is dropped by the extractor's regex check."""
+        valid = ExtractedTTP(
+            technique_id="T1059.001",
+            technique_name="PowerShell",
+            tactic="Execution",
+            description="Valid",
+            confidence=Confidence.HIGH,
         )
-        # Manually add an invalid one that bypasses Pydantic (simulating LLM weirdness)
-        result_dict = result.model_dump()
-        result_dict["techniques"].append(
-            {
-                "technique_id": "TXXX",
-                "technique_name": "Bad",
-                "tactic": "Execution",
-                "description": "Invalid",
-                "confidence": "low",
-                "source_chunk": "",
-            }
+        # model_construct bypasses Pydantic validation, simulating a malformed LLM response
+        invalid = ExtractedTTP.model_construct(
+            technique_id="TXXX",
+            technique_name="Bad",
+            tactic="Execution",
+            description="Invalid",
+            confidence=Confidence.LOW,
+            source_chunk="",
         )
+        result = TTPExtractionResult.model_construct(techniques=[valid, invalid])
 
-        # The extractor validates IDs itself via regex, separate from Pydantic
         mock_chain = MagicMock()
         mock_chain.invoke.return_value = result
         mock_llm = MagicMock()
@@ -114,8 +108,7 @@ class TestTTPExtractor:
         extractor._prompt.__or__ = MagicMock(return_value=mock_chain)
 
         ttps = extractor.extract(_make_chunks(["test"]))
-        assert len(ttps) == 1
-        assert ttps[0].technique_id == "T1059.001"
+        assert [t.technique_id for t in ttps] == ["T1059.001"]
 
     @patch("purpleforge.ingest.ttp_extractor.ChatOpenAI")
     def test_empty_extraction_raises(self, mock_llm_cls: MagicMock) -> None:
