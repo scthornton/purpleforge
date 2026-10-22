@@ -1,19 +1,25 @@
-"""LLM-based TTP extraction with structured output and RAG retrieval."""
+"""LLM-based TTP extraction with structured output over the whole report (map-reduce)."""
 
 from __future__ import annotations
 
 import logging
 import re
 
-from langchain_core.documents import Document
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 
+from purpleforge.ingest.pdf_loader import Chunk
 from purpleforge.models.extraction import Confidence, ExtractedTTP, TTPExtractionResult
 
 logger = logging.getLogger(__name__)
 
 TECHNIQUE_ID_PATTERN = re.compile(r"^T\d{4}(\.\d{3})?$")
+
+# Characters of report text sent to the model per request. A typical report fits
+# in one or two batches, so recall does not depend on a similarity search.
+BATCH_CHAR_BUDGET = 12000
+
+# Length of the source excerpt stored with each technique for the review gate.
+SOURCE_EXCERPT_CHARS = 300
 
 EXTRACTION_SYSTEM_PROMPT = """You are a senior threat intelligence analyst. Extract all MITRE ATT&CK \
 techniques from the provided threat report content. For each technique:
@@ -25,51 +31,75 @@ techniques from the provided threat report content. For each technique:
 not named), low (inferred from context)
 Only include techniques you can justify from the text. Do not hallucinate techniques."""
 
-RAG_QUERY = "What MITRE ATT&CK techniques, tactics, and procedures are described in this report?"
+
+class ExtractionError(Exception):
+    """Raised when TTP extraction fails."""
 
 
 class TTPExtractor:
-    """Extracts ATT&CK techniques from document chunks via RAG + structured LLM output."""
+    """Extract ATT&CK techniques from report chunks via structured LLM output."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
-        self._llm = ChatOpenAI(
-            model=model,
-            api_key=api_key,  # type: ignore[arg-type]
-            temperature=0,
-        )
-        self._prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", EXTRACTION_SYSTEM_PROMPT),
-                ("human", "Threat report content:\n\n{context}"),
-            ]
-        )
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini", base_url: str | None = None) -> None:
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._model = model
 
-    def extract(self, chunks: list[Document]) -> list[ExtractedTTP]:
-        """Extract TTPs from document chunks using structured LLM output.
+    def extract(self, chunks: list[Chunk]) -> list[ExtractedTTP]:
+        """Extract TTPs across all chunks and return validated, deduplicated results.
 
-        Uses a two-pass approach:
-        1. Concatenate relevant chunks into context
-        2. LLM extracts structured TTPs
-
-        Returns validated and deduplicated TTPs sorted by tactic then technique_id.
+        The chunks are grouped into batches that fit a character budget, each batch
+        is extracted independently, and the results are merged (highest confidence
+        wins per technique). Each technique keeps a short excerpt of its source text.
 
         Raises:
             ExtractionError: If no valid techniques are extracted.
         """
-        context = "\n\n---\n\n".join(chunk.page_content for chunk in chunks)
+        collected: list[ExtractedTTP] = []
+        for batch_text in self._batch(chunks):
+            collected.extend(self._extract_batch(batch_text))
 
-        chain = self._prompt | self._llm.with_structured_output(TTPExtractionResult)
-        result: TTPExtractionResult = chain.invoke({"context": context})  # type: ignore[assignment]
-
-        valid_ttps = self._validate_and_dedup(result.techniques)
-
+        valid_ttps = self._validate_and_dedup(collected)
         if not valid_ttps:
             raise ExtractionError("No valid techniques found in document")
 
         return sorted(valid_ttps, key=lambda t: (t.tactic, t.technique_id))
 
+    def _batch(self, chunks: list[Chunk]) -> list[str]:
+        """Group chunk texts into batches no larger than the character budget."""
+        batches: list[str] = []
+        current = ""
+        for chunk in chunks:
+            text = chunk.text
+            if current and len(current) + len(text) + 4 > BATCH_CHAR_BUDGET:
+                batches.append(current)
+                current = text
+            else:
+                current = f"{current}\n\n---\n\n{text}" if current else text
+        if current.strip():
+            batches.append(current)
+        return batches
+
+    def _extract_batch(self, batch_text: str) -> list[ExtractedTTP]:
+        """Run one structured-output extraction over a batch of report text."""
+        completion = self._client.beta.chat.completions.parse(
+            model=self._model,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Threat report content:\n\n{batch_text}"},
+            ],
+            response_format=TTPExtractionResult,
+        )
+        parsed = completion.choices[0].message.parsed
+        if parsed is None:
+            return []
+        excerpt = batch_text.strip()[:SOURCE_EXCERPT_CHARS]
+        for ttp in parsed.techniques:
+            if not ttp.source_chunk:
+                ttp.source_chunk = excerpt
+        return list(parsed.techniques)
+
     def _validate_and_dedup(self, ttps: list[ExtractedTTP]) -> list[ExtractedTTP]:
-        """Validate technique IDs and deduplicate (keep highest confidence)."""
+        """Drop invalid technique IDs and keep the highest-confidence copy of each."""
         seen: dict[str, ExtractedTTP] = {}
         confidence_order = {Confidence.HIGH: 3, Confidence.MEDIUM: 2, Confidence.LOW: 1}
 
@@ -77,13 +107,8 @@ class TTPExtractor:
             if not TECHNIQUE_ID_PATTERN.match(ttp.technique_id):
                 logger.warning("Dropping invalid technique ID: %s", ttp.technique_id)
                 continue
-
             existing = seen.get(ttp.technique_id)
             if existing is None or confidence_order[ttp.confidence] > confidence_order[existing.confidence]:
                 seen[ttp.technique_id] = ttp
 
         return list(seen.values())
-
-
-class ExtractionError(Exception):
-    """Raised when TTP extraction fails."""

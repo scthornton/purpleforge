@@ -21,7 +21,7 @@ The pipeline uses a state machine (not AI agents) because the workflow is fixed:
 ```
 purpleforge run --source report.pdf
   │
-  ├─ INGEST     PDF → chunk → embed (ChromaDB) → LLM extract TTPs
+  ├─ INGEST     PDF → chunk → LLM extract TTPs (map-reduce over the report)
   ├─ REVIEW     Human gate — operator reviews extracted_ttps.yaml
   │
 purpleforge confirm --run-id <id>
@@ -41,7 +41,7 @@ src/purpleforge/
   cli.py                    Click CLI: run, confirm, status, report, deploy-draft, list, demo
   config.py                 Pydantic Settings — all env vars with SecretStr
   models/                   Pydantic data models (extraction, emulation, evidence, advisory, pipeline)
-  ingest/                   PDF loading, ChromaDB vector store, LLM TTP extraction
+  ingest/                   PDF loading, chunking, LLM TTP extraction
   resolve/                  Caldera-first, Atomic fallback technique resolution
   execute/                  Caldera operation executor, Atomic WinRM executor
   validate/                 LimaCharlie detection querying, evidence chain builder

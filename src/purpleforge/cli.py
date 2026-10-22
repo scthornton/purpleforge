@@ -73,10 +73,18 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
         table.add_column("Name")
         table.add_column("Tactic")
         table.add_column("Confidence")
+        table.add_column("Source excerpt", style="dim")
         for t in techniques:
-            conf = t.get("confidence", t.get("confidence", ""))
+            conf = t.get("confidence", "")
             style = {"high": "green", "medium": "yellow", "low": "red"}.get(conf, "")
-            table.add_row(t["technique_id"], t["technique_name"], t["tactic"], f"[{style}]{conf}[/{style}]")
+            excerpt = " ".join((t.get("source_chunk") or "").split())[:60]
+            table.add_row(
+                t["technique_id"],
+                t["technique_name"],
+                t["tactic"],
+                f"[{style}]{conf}[/{style}]" if conf else "",
+                excerpt,
+            )
         console.print(table)
 
     run_dir = f"{settings.run_base_dir}/{run_id}"

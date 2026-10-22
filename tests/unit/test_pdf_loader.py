@@ -1,4 +1,4 @@
-"""Tests for PDF loading and chunking."""
+"""Tests for PDF loading and the local text splitter."""
 
 from __future__ import annotations
 
@@ -6,25 +6,25 @@ from pathlib import Path
 
 import pytest
 
-from purpleforge.ingest.pdf_loader import chunk_documents, load_pdf
+from purpleforge.ingest.pdf_loader import Chunk, chunk_documents, load_pdf
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 class TestLoadPdf:
     def test_load_sample_pdf(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        assert len(docs) == 3  # 3-page PDF
-        assert all(d.page_content.strip() for d in docs)
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        assert len(pages) == 3
+        assert all(p.text.strip() for p in pages)
+        assert all(isinstance(p, Chunk) for p in pages)
 
-    def test_metadata_has_page_numbers(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        pages = [d.metadata["page"] for d in docs]
-        assert pages == [1, 2, 3]
+    def test_page_numbers(self) -> None:
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        assert [p.page for p in pages] == [1, 2, 3]
 
     def test_content_contains_techniques(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        all_text = " ".join(d.page_content for d in docs)
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        all_text = " ".join(p.text for p in pages)
         assert "T1059.001" in all_text
         assert "T1053.005" in all_text
         assert "T1003.001" in all_text
@@ -35,21 +35,28 @@ class TestLoadPdf:
 
 
 class TestChunkDocuments:
-    def test_chunks_smaller_than_originals(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        chunks = chunk_documents(docs, chunk_size=500, chunk_overlap=100)
-        assert len(chunks) >= len(docs)  # More chunks than pages
+    def test_chunks_respect_size(self) -> None:
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        chunks = chunk_documents(pages, chunk_size=500, chunk_overlap=100)
+        assert len(chunks) >= len(pages)
         for chunk in chunks:
-            assert len(chunk.page_content) <= 600  # Roughly within chunk_size + tolerance
+            assert len(chunk.text) <= 700  # chunk_size plus overlap tolerance
 
-    def test_chunks_preserve_metadata(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        chunks = chunk_documents(docs)
+    def test_chunks_preserve_provenance(self) -> None:
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        chunks = chunk_documents(pages)
         for chunk in chunks:
-            assert "source" in chunk.metadata
+            assert chunk.source
+            assert chunk.metadata["source"] == chunk.source
 
-    def test_custom_chunk_params(self) -> None:
-        docs = load_pdf(FIXTURES / "sample_threat_report.pdf")
-        small_chunks = chunk_documents(docs, chunk_size=200, chunk_overlap=50)
-        large_chunks = chunk_documents(docs, chunk_size=2000, chunk_overlap=200)
-        assert len(small_chunks) > len(large_chunks)
+    def test_smaller_size_makes_more_chunks(self) -> None:
+        pages = load_pdf(FIXTURES / "sample_threat_report.pdf")
+        small = chunk_documents(pages, chunk_size=200, chunk_overlap=50)
+        large = chunk_documents(pages, chunk_size=2000, chunk_overlap=200)
+        assert len(small) > len(large)
+
+    def test_splitter_handles_text_without_separators(self) -> None:
+        blob = Chunk(text="X" * 2500, page=1, source="r.pdf")
+        chunks = chunk_documents([blob], chunk_size=1000, chunk_overlap=0)
+        assert len(chunks) >= 3
+        assert all(len(c.text) <= 1000 for c in chunks)

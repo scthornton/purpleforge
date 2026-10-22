@@ -6,8 +6,7 @@ import logging
 from typing import Any, Literal
 
 import yaml
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from purpleforge.models.advisory import AdvisoryRule, RuleConfidence
@@ -71,26 +70,9 @@ class SigmaRuleDraft(BaseModel):
 class AdvisoryGenerator:
     """Generate draft Sigma rules for missed techniques."""
 
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
-        self._llm = ChatOpenAI(
-            model=model,
-            api_key=api_key,  # type: ignore[arg-type]
-            temperature=0.2,
-        )
-        self._prompt = ChatPromptTemplate.from_messages(
-            [
-                ("system", ADVISORY_SYSTEM_PROMPT),
-                (
-                    "human",
-                    (
-                        "Generate a Sigma detection rule for:\n"
-                        "Technique: {technique_id} ({technique_name})\n"
-                        "Tactic: {tactic}\n"
-                        "Context from threat report: {description}"
-                    ),
-                ),
-            ]
-        )
+    def __init__(self, api_key: str, model: str = "gpt-4o-mini", base_url: str | None = None) -> None:
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
+        self._model = model
 
     def generate(
         self,
@@ -100,15 +82,25 @@ class AdvisoryGenerator:
         description: str = "",
     ) -> AdvisoryRule:
         """Generate a single advisory Sigma rule draft."""
-        chain = self._prompt | self._llm.with_structured_output(SigmaRuleDraft)
-        result: SigmaRuleDraft = chain.invoke(
-            {  # type: ignore[assignment]
-                "technique_id": technique_id,
-                "technique_name": technique_name,
-                "tactic": tactic,
-                "description": description or f"Technique {technique_id} was emulated but not detected",
-            }
+        context = description or f"Technique {technique_id} was emulated but not detected"
+        user_prompt = (
+            "Generate a Sigma detection rule for:\n"
+            f"Technique: {technique_id} ({technique_name})\n"
+            f"Tactic: {tactic}\n"
+            f"Context from threat report: {context}"
         )
+        completion = self._client.beta.chat.completions.parse(
+            model=self._model,
+            temperature=0.2,
+            messages=[
+                {"role": "system", "content": ADVISORY_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            response_format=SigmaRuleDraft,
+        )
+        result = completion.choices[0].message.parsed
+        if result is None:
+            raise AdvisoryValidationError(f"Model returned no draft for {technique_id}")
         validate_sigma_yaml(result.rule_yaml)
 
         return AdvisoryRule(
