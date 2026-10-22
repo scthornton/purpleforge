@@ -35,6 +35,9 @@ class DetectionValidator:
     def __init__(self, client: LimaCharlieClient, query_buffer: int = 60) -> None:
         self._client = client
         self._query_buffer = query_buffer
+        # The raw detections fetched for the last validate() call, kept so the
+        # caller can persist a snapshot for offline re-auditing.
+        self.fetched_detections: list[dict[str, Any]] = []
 
     def validate(
         self,
@@ -50,9 +53,12 @@ class DetectionValidator:
             technique_metadata: Optional map of technique_id to {"name": ..., "tactic": ...}
                 to populate human-readable fields in evidence chains.
 
-        Successful emulations are validated against LimaCharlie detections.
-        Failed, timed-out, and error emulations get chains with MISSED status so they
-        remain in the coverage denominator rather than silently disappearing.
+        Successful emulations are validated against LimaCharlie detections. Failed,
+        timed-out, and error emulations get chains with INCONCLUSIVE status: the
+        control was never exercised, so the run cannot speak to whether it fires.
+        Detections that fall in a technique's window without matching any emulated
+        technique by tag are recorded as unattributed context and never count as
+        coverage.
         """
         chains: list[EvidenceChain] = []
         meta = technique_metadata or {}
@@ -70,14 +76,24 @@ class DetectionValidator:
 
             all_detections = self._client.get_detections_by_time_range(start=window_start, end=window_end)
             logger.info("Fetched %d detections in query window", len(all_detections))
+        self.fetched_detections = all_detections
+
+        # First pass: find every detection that tag-matches some emulated technique.
+        # Those are "attributed" and must not reappear as unattributed context.
+        attributed_ids: set[str] = set()
+        for record in successful:
+            for m in self._client.search_detections_by_technique(record.technique_id, all_detections):
+                aid = m.get("detect_id", "")
+                if aid:
+                    attributed_ids.add(aid)
 
         for record in successful:
-            chain = self._build_chain(record, all_detections, detection_wait)
+            chain = self._build_chain(record, all_detections, detection_wait, attributed_ids)
             self._apply_metadata(chain, meta)
             chains.append(chain)
 
-        # Include failed, timed-out, and error emulations as MISSED so they count
-        # in the coverage denominator instead of vanishing
+        # Failed, timed-out, and error emulations are inconclusive: the control
+        # was not exercised, so this run neither confirms nor denies detection.
         for record in failed:
             chain = self._build_failed_chain(record)
             self._apply_metadata(chain, meta)
@@ -99,6 +115,7 @@ class DetectionValidator:
         record: EmulationRecord,
         all_detections: list[dict[str, Any]],
         detection_wait: int,
+        attributed_ids: set[str],
     ) -> EvidenceChain:
         """Build an evidence chain for a single emulated technique."""
         tid = record.technique_id
@@ -134,21 +151,26 @@ class DetectionValidator:
             if MATCH_PRIORITY[match_type] > MATCH_PRIORITY[best_match]:
                 best_match = match_type
 
-        # If no tag matches, check for time correlation
-        if not matching_alerts and windowed:
-            best_match = MatchType.TIME_CORRELATION
-            for d in windowed[:3]:  # Max 3 time-correlated detections
-                matching_alerts.append(
-                    DetectionMatch(
-                        alert_id=d.get("detect_id", ""),
-                        alert_timestamp=self._alert_time(d, start),
-                        rule_name=d.get("detect_mtd", {}).get("description", "Unknown"),
-                        matched_tag="",
-                        match_type=MatchType.TIME_CORRELATION,
-                    )
+        # Detections in the window that matched no emulated technique are recorded
+        # as unattributed context. They are evidence an analyst may want to see,
+        # but they never raise this technique's coverage status.
+        unattributed_alerts: list[DetectionMatch] = []
+        for d in windowed:
+            aid = d.get("detect_id", "")
+            if aid in attributed_ids:
+                continue
+            unattributed_alerts.append(
+                DetectionMatch(
+                    alert_id=aid,
+                    alert_timestamp=self._alert_time(d, start),
+                    rule_name=d.get("detect_mtd", {}).get("description", "Unknown"),
+                    matched_tag="",
+                    match_type=MatchType.TIME_CORRELATION,
+                    alert_description=d.get("detect_mtd", {}).get("description", ""),
                 )
+            )
 
-        # Assign confidence and status
+        # Assign confidence and status from tag matches only
         confidence, status = self._classify(best_match)
 
         # Reconciliation note
@@ -160,6 +182,11 @@ class DetectionValidator:
         elif best_match == MatchType.CHILD_TECHNIQUE:
             child_tag = next(a.matched_tag for a in matching_alerts if a.match_type == MatchType.CHILD_TECHNIQUE)
             reconciliation = f"Matched sub-technique tag {child_tag} for parent technique {tid}"
+        elif not matching_alerts and unattributed_alerts:
+            reconciliation = (
+                f"{len(unattributed_alerts)} detection(s) in the window did not match {tid} by tag; "
+                "recorded as unattributed activity, not counted as coverage"
+            )
 
         return EvidenceChain(
             technique_id=tid,
@@ -175,6 +202,7 @@ class DetectionValidator:
             best_match_type=best_match,
             confidence=confidence,
             status=status,
+            unattributed_alerts=unattributed_alerts,
             reconciliation_note=reconciliation,
             parent_technique_checked=parent_checked,
         )
@@ -182,7 +210,9 @@ class DetectionValidator:
     def _build_failed_chain(self, record: EmulationRecord) -> EvidenceChain:
         """Build an evidence chain for a failed, timed-out, or error emulation.
 
-        These get MISSED status so they stay in the coverage denominator.
+        These get INCONCLUSIVE status. The technique was never exercised, so this
+        run says nothing about whether the control fires. INCONCLUSIVE is reported
+        separately and excluded from both coverage percentages.
         """
         tid = record.technique_id
         start = record.start_time
@@ -203,18 +233,20 @@ class DetectionValidator:
             matching_alerts=[],
             best_match_type=MatchType.NONE,
             confidence=DetectionConfidence.NONE,
-            status=CoverageStatus.MISSED,
+            status=CoverageStatus.INCONCLUSIVE,
             reconciliation_note=note,
         )
 
     def _classify(self, match_type: MatchType) -> tuple[DetectionConfidence, CoverageStatus]:
-        """Assign confidence and coverage status based on match type."""
+        """Assign confidence and coverage status based on the strongest tag match.
+
+        Time correlation is not a coverage signal, so a technique with no tag match
+        is MISSED even when unattributed activity sits in its window.
+        """
         if match_type in (MatchType.EXACT_TECHNIQUE, MatchType.CHILD_TECHNIQUE):
             return DetectionConfidence.HIGH, CoverageStatus.DETECTED
         if match_type == MatchType.PARENT_TECHNIQUE:
             return DetectionConfidence.MEDIUM, CoverageStatus.PARTIAL
-        if match_type == MatchType.TIME_CORRELATION:
-            return DetectionConfidence.LOW, CoverageStatus.PARTIAL
         return DetectionConfidence.NONE, CoverageStatus.MISSED
 
     @staticmethod

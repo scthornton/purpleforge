@@ -53,6 +53,7 @@ EXPECTED_ARTIFACTS = [
     "execution_plan.yaml",
     "emulation_results.yaml",
     "evidence_chains.json",
+    "detections_snapshot.json",
     "coverage_report.json",
     "coverage_report.html",
     "navigator_layer.json",

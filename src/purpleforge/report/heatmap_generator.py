@@ -12,8 +12,9 @@ COLORS = {
     CoverageStatus.DETECTED: "#a1d99b",  # green
     CoverageStatus.PARTIAL: "#fee08b",  # yellow
     CoverageStatus.MISSED: "#fc8d59",  # red
+    CoverageStatus.INCONCLUSIVE: "#cccccc",  # gray, emulation did not run cleanly
 }
-SKIPPED_COLOR = "#ffffff"  # white — not tested
+SKIPPED_COLOR = "#ffffff"  # white, not tested
 
 
 class HeatmapGenerator:
@@ -53,13 +54,13 @@ class HeatmapGenerator:
             )
 
         return {
-            "name": f"PurpleForge Coverage — Run {result.run_id}",
+            "name": f"PurpleForge Coverage, Run {result.run_id}",
             "versions": {"attack": "16", "navigator": "4.5", "layer": "4.5"},
             "domain": "enterprise-attack",
             "description": (
                 f"Coverage: {result.coverage_pct}% "
                 f"(D:{result.detected_count} P:{result.partial_count} "
-                f"M:{result.missed_count} S:{result.skipped_count})"
+                f"M:{result.missed_count} I:{result.inconclusive_count} S:{result.skipped_count})"
             ),
             "filters": {"platforms": ["Windows"]},
             "sorting": 3,
@@ -73,8 +74,9 @@ class HeatmapGenerator:
             },
             "legendItems": [
                 {"label": "Detected (high confidence)", "color": "#a1d99b"},
-                {"label": "Partial (medium/low confidence)", "color": "#fee08b"},
+                {"label": "Partial (parent-technique match)", "color": "#fee08b"},
                 {"label": "Missed (no detection)", "color": "#fc8d59"},
+                {"label": "Inconclusive (emulation failed)", "color": "#cccccc"},
                 {"label": "Not tested", "color": "#ffffff"},
             ],
             "showTacticRowBackground": True,

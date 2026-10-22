@@ -1,4 +1,4 @@
-"""Coverage analyzer — aggregates evidence chains into a coverage report."""
+"""Coverage analyzer: aggregates evidence chains into a coverage report."""
 
 from __future__ import annotations
 
@@ -20,7 +20,9 @@ class CoverageAnalyzer:
         detected = sum(1 for c in evidence_chains if c.status == CoverageStatus.DETECTED)
         partial = sum(1 for c in evidence_chains if c.status == CoverageStatus.PARTIAL)
         missed = sum(1 for c in evidence_chains if c.status == CoverageStatus.MISSED)
+        inconclusive = sum(1 for c in evidence_chains if c.status == CoverageStatus.INCONCLUSIVE)
         total = len(evidence_chains) + len(skipped)
+        skipped_count = len(skipped)
 
         return CoverageResult(
             run_id=run_id,
@@ -28,9 +30,12 @@ class CoverageAnalyzer:
             detected_count=detected,
             partial_count=partial,
             missed_count=missed,
-            skipped_count=len(skipped),
-            coverage_pct=CoverageResult.compute_coverage_pct(detected, partial, total, len(skipped)),
-            strict_coverage_pct=CoverageResult.compute_strict_coverage_pct(detected, total, len(skipped)),
+            skipped_count=skipped_count,
+            inconclusive_count=inconclusive,
+            coverage_pct=CoverageResult.compute_coverage_pct(detected, partial, total, skipped_count, inconclusive),
+            strict_coverage_pct=CoverageResult.compute_strict_coverage_pct(
+                detected, total, skipped_count, inconclusive
+            ),
             evidence_chains=evidence_chains,
             skipped_techniques=skipped,
         )
