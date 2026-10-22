@@ -1,6 +1,8 @@
-"""PurpleForge CLI — primary user interface."""
+"""PurpleForge CLI: primary user interface."""
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
@@ -10,7 +12,31 @@ from rich.text import Text
 
 from purpleforge import __version__
 
+if TYPE_CHECKING:
+    from purpleforge.config import PurpleForgeSettings
+    from purpleforge.pipeline.run_store import RunStore
+
 console = Console()
+
+
+def _load_settings() -> PurpleForgeSettings:
+    """Load settings once. Exit non-zero on a malformed .env; never fall back silently."""
+    from purpleforge.config import PurpleForgeSettings
+
+    try:
+        return PurpleForgeSettings()
+    except Exception as e:
+        console.print(f"[red]Configuration error: {e}[/red]")
+        console.print("Check your environment variables and .env file. See .env.example.")
+        raise SystemExit(2)
+
+
+def _load_store() -> RunStore:
+    """Open the run store at the configured base directory."""
+    from purpleforge.pipeline.run_store import RunStore
+
+    return RunStore(_load_settings().run_base_dir)
+
 
 BANNER = r"""
 [bold red] ____                   _      _____
@@ -36,13 +62,13 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
     """Start a new pipeline run. Ingests PDF and extracts TTPs."""
     console.print(f"[bold]PurpleForge v{__version__}[/bold]")
 
-    try:
-        from purpleforge.config import PurpleForgeSettings
+    from purpleforge.config import ConfigError
 
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-    except Exception as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
-        console.print("Ensure all required environment variables are set. See .env.example")
+    settings = _load_settings()
+    try:
+        settings.require_openai()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
 
     # Apply CLI overrides
@@ -98,12 +124,15 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
 @click.option("--ttps-file", default=None, type=click.Path(exists=True), help="Override TTPs file path")
 def confirm(run_id: str, ttps_file: str | None) -> None:
     """Confirm extracted TTPs and proceed with emulation, validation, and reporting."""
-    try:
-        from purpleforge.config import PurpleForgeSettings
+    from purpleforge.config import ConfigError
 
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-    except Exception as e:
-        console.print(f"[red]Configuration error: {e}[/red]")
+    settings = _load_settings()
+    try:
+        settings.require_caldera()
+        settings.require_limacharlie()
+        settings.require_winrm()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
 
     from purpleforge.pipeline.orchestrator import PipelineError, PipelineOrchestrator
@@ -146,15 +175,7 @@ def confirm(run_id: str, ttps_file: str | None) -> None:
 @click.option("--run-id", required=True, help="Run ID to check")
 def status(run_id: str) -> None:
     """Show current pipeline state for a run."""
-    from purpleforge.pipeline.run_store import RunStore
-
-    try:
-        from purpleforge.config import PurpleForgeSettings
-
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-        store = RunStore(settings.run_base_dir)
-    except Exception:
-        store = RunStore("./data/runs")
+    store = _load_store()
 
     try:
         pipeline_run = store.load_run(run_id)
@@ -195,18 +216,11 @@ def report(run_id: str, fmt: str) -> None:
     from pathlib import Path
 
     from purpleforge.models.evidence import EvidenceChain
-    from purpleforge.pipeline.run_store import RunStore
     from purpleforge.report.coverage_analyzer import CoverageAnalyzer
     from purpleforge.report.heatmap_generator import HeatmapGenerator
     from purpleforge.report.html_renderer import HtmlRenderer
 
-    try:
-        from purpleforge.config import PurpleForgeSettings
-
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-        store = RunStore(settings.run_base_dir)
-    except Exception:
-        store = RunStore("./data/runs")
+    store = _load_store()
 
     try:
         store.load_run(run_id)
@@ -269,15 +283,10 @@ def report(run_id: str, fmt: str) -> None:
 @click.option("--target", type=click.Choice(["github", "stdout"]), default="stdout")
 def deploy_draft(run_id: str, technique: str, target: str) -> None:
     """Deploy an advisory detection rule draft."""
-    from purpleforge.pipeline.run_store import RunStore
+    from purpleforge.config import ConfigError
 
-    try:
-        from purpleforge.config import PurpleForgeSettings
-
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-        store = RunStore(settings.run_base_dir)
-    except Exception:
-        store = RunStore("./data/runs")
+    settings = _load_settings()
+    store = _load_store()
 
     # Read the draft
     try:
@@ -289,26 +298,22 @@ def deploy_draft(run_id: str, technique: str, target: str) -> None:
     rule_yaml = advisory.get("rule_yaml", "")
 
     if target == "stdout":
-        console.print(f"\n[bold]Sigma Rule Draft — {technique}[/bold]")
+        console.print(f"\n[bold]Sigma Rule Draft: {technique}[/bold]")
         console.print(f"Confidence: {advisory.get('confidence', 'unknown')}")
         console.print()
         console.print(rule_yaml)
     elif target == "github":
         try:
-            settings = PurpleForgeSettings()  # type: ignore[call-arg]
-        except Exception as e:
-            console.print(f"[red]Configuration error: {e}[/red]")
-            raise SystemExit(2)
-
-        if not settings.github_token or not settings.detection_repo:
-            console.print("[red]GITHUB_TOKEN and DETECTION_REPO must be set for GitHub deployment[/red]")
+            settings.require_github()
+        except ConfigError as e:
+            console.print(f"[red]{e}[/red]")
             raise SystemExit(2)
 
         from purpleforge.clients.github_client import GitHubClient
 
         gh = GitHubClient(
-            token=settings.github_token.get_secret_value(),
-            repo=settings.detection_repo,
+            token=settings.github_token_value(),
+            repo=settings.detection_repo_value(),
             base_url=settings.github_base_url,
         )
         branch = f"purpleforge/{run_id}/{technique}"
@@ -338,15 +343,7 @@ def deploy_draft(run_id: str, technique: str, target: str) -> None:
 @cli.command("list")
 def list_runs() -> None:
     """List all pipeline runs."""
-    from purpleforge.pipeline.run_store import RunStore
-
-    try:
-        from purpleforge.config import PurpleForgeSettings
-
-        settings = PurpleForgeSettings()  # type: ignore[call-arg]
-        store = RunStore(settings.run_base_dir)
-    except Exception:
-        store = RunStore("./data/runs")
+    store = _load_store()
 
     runs = store.list_runs()
     if not runs:
@@ -363,6 +360,106 @@ def list_runs() -> None:
     console.print(table)
 
 
+@cli.command()
+def doctor() -> None:
+    """Check connectivity and credentials for each integration. Read-only."""
+    from purpleforge.config import ConfigError
+
+    settings = _load_settings()
+    rows: list[tuple[str, str, str]] = []
+    any_failed = False
+
+    def record(name: str, status: str, detail: str) -> None:
+        nonlocal any_failed
+        if status == "failed":
+            any_failed = True
+        rows.append((name, status, detail))
+
+    # OpenAI
+    try:
+        settings.require_openai()
+    except ConfigError:
+        record("OpenAI", "not configured", "OPENAI_API_KEY not set")
+    else:
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=settings.openai_key(), base_url=settings.openai_base_url, timeout=10)
+            client.models.list()
+            record("OpenAI", "ok", settings.openai_base_url or "api.openai.com")
+        except Exception as e:
+            record("OpenAI", "failed", str(e)[:80])
+
+    # Caldera
+    try:
+        settings.require_caldera()
+    except ConfigError:
+        record("Caldera", "not configured", "CALDERA_API_KEY not set")
+    else:
+        try:
+            from purpleforge.clients.caldera_client import CalderaClient
+
+            caldera = CalderaClient(base_url=settings.caldera_url, api_key=settings.caldera_key())
+            agents = caldera.get_agents()
+            caldera.close()
+            record("Caldera", "ok", f"{len(agents)} agent(s), group '{settings.caldera_group}'")
+        except Exception as e:
+            record("Caldera", "failed", str(e)[:80])
+
+    # LimaCharlie
+    try:
+        settings.require_limacharlie()
+    except ConfigError:
+        record("LimaCharlie", "not configured", "LC_API_KEY or LC_ORG_ID not set")
+    else:
+        try:
+            from purpleforge.clients.limacharlie_client import LimaCharlieClient
+
+            lc = LimaCharlieClient(api_key=settings.lc_key(), org_id=settings.lc_org())
+            lc._token(force_refresh=True)  # force the JWT exchange as a connectivity probe
+            lc.close()
+            record("LimaCharlie", "ok", f"org {settings.lc_org()}")
+        except Exception as e:
+            record("LimaCharlie", "failed", str(e)[:80])
+
+    # WinRM
+    try:
+        settings.require_winrm()
+    except ConfigError:
+        record("WinRM", "not configured", "WINRM_HOST or WINRM_PASSWORD not set")
+    else:
+        try:
+            from purpleforge.clients.atomic_runner import AtomicRunner
+
+            runner = AtomicRunner(
+                host=settings.winrm_host_value(),
+                user=settings.winrm_user,
+                password=settings.winrm_pass(),
+                port=settings.winrm_port,
+                transport=settings.winrm_transport,
+                use_https=settings.winrm_use_https,
+                server_cert_validation=settings.winrm_cert_validation,
+                ca_trust_path=settings.winrm_ca_trust_path,
+            )
+            runner.check_connection()
+            record("WinRM", "ok", settings.winrm_host_value())
+        except Exception as e:
+            record("WinRM", "failed", str(e)[:80])
+
+    table = Table(title="PurpleForge doctor")
+    table.add_column("Integration")
+    table.add_column("Status")
+    table.add_column("Detail", style="dim")
+    status_style = {"ok": "green", "failed": "red", "not configured": "yellow"}
+    for name, status, detail in rows:
+        style = status_style.get(status, "")
+        table.add_row(name, f"[{style}]{status}[/{style}]" if style else status, detail)
+    console.print(table)
+
+    if any_failed:
+        raise SystemExit(1)
+
+
 @cli.command("install-atomic")
 def install_atomic() -> None:
     """Install Atomic Red Team on the configured WinRM target (explicit operator action).
@@ -372,13 +469,18 @@ def install_atomic() -> None:
     never performed automatically by run or confirm.
     """
     from purpleforge.clients.atomic_runner import AtomicInstallError, AtomicRunner, WinRMConnectionError
-    from purpleforge.config import PurpleForgeSettings
+    from purpleforge.config import ConfigError
 
-    settings = PurpleForgeSettings()  # type: ignore[call-arg]
+    settings = _load_settings()
+    try:
+        settings.require_winrm()
+    except ConfigError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
     runner = AtomicRunner(
-        host=settings.winrm_host,
+        host=settings.winrm_host_value(),
         user=settings.winrm_user,
-        password=settings.winrm_password.get_secret_value(),
+        password=settings.winrm_pass(),
         port=settings.winrm_port,
         transport=settings.winrm_transport,
         use_https=settings.winrm_use_https,
