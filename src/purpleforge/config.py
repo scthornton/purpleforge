@@ -40,6 +40,7 @@ class PurpleForgeSettings(BaseSettings):
     # GitHub (optional, only needed for deploy-draft --target github)
     github_token: SecretStr | None = None
     detection_repo: str | None = None
+    github_base_url: str | None = None
 
     # Pipeline
     detection_wait_seconds: int = 120
