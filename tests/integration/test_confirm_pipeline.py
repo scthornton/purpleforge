@@ -54,9 +54,11 @@ EXPECTED_ARTIFACTS = [
     "emulation_results.yaml",
     "evidence_chains.json",
     "detections_snapshot.json",
+    "caldera_operation.json",
     "coverage_report.json",
     "coverage_report.html",
     "navigator_layer.json",
+    "manifest.json",
 ]
 
 
@@ -181,6 +183,26 @@ class TestConfirmPipeline:
         assert [a["alert_id"] for a in ps["matching_alerts"]] == ["lc-1"]
         assert report["skipped_techniques"] == ["T9999"]
         assert report["total_techniques"] == 4
+
+    def test_manifest_lists_evidence(self, completed_run: tuple[PipelineOrchestrator, str]) -> None:
+        orch, run_id = completed_run
+        run_dir = Path(orch.store.base_dir) / run_id
+        manifest = json.loads((run_dir / "manifest.json").read_text())
+        names = {f["name"] for f in manifest["files"]}
+        assert "coverage_report.json" in names
+        assert "caldera_operation.json" in names
+        # The manifest never lists itself, the lock, or the run log.
+        assert "manifest.json" not in names
+        assert ".lock" not in names
+        assert "run.log" not in names
+        # Every entry has a sha256 and a byte size.
+        assert all(len(f["sha256"]) == 64 and f["size"] >= 0 for f in manifest["files"])
+
+    def test_caldera_operation_persisted(self, completed_run: tuple[PipelineOrchestrator, str]) -> None:
+        orch, run_id = completed_run
+        op = json.loads((Path(orch.store.base_dir) / run_id / "caldera_operation.json").read_text())
+        assert op["id"] == "op-1"
+        assert op["state"] == "finished"
 
     def test_report_can_be_regenerated(self, completed_run: tuple[PipelineOrchestrator, str]) -> None:
         orch, run_id = completed_run

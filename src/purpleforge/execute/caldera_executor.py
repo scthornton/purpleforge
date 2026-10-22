@@ -50,6 +50,8 @@ class CalderaExecutor:
         self._timeout = timeout
         self._poll_interval = poll_interval
         self._group = group
+        # The operation object this executor ran or reused, for the audit report.
+        self.last_operation: dict[str, Any] | None = None
 
     def execute(self, techniques: list[ResolvedTechnique]) -> list[EmulationRecord]:
         """Run all Caldera techniques as one operation and return per-technique records.
@@ -67,6 +69,7 @@ class CalderaExecutor:
 
         if existing and existing.get("state") == "finished":
             logger.info("Reusing finished Caldera operation %s", existing.get("id"))
+            self.last_operation = existing
             return self._extract_results(existing, techniques, str(existing.get("id", "")))
 
         if existing and existing.get("state") == "running":
@@ -74,6 +77,7 @@ class CalderaExecutor:
             op = self._client.wait_for_operation(
                 str(existing.get("id", "")), timeout=self._timeout, poll_interval=self._poll_interval
             )
+            self.last_operation = op
             return self._extract_results(op, techniques, str(existing.get("id", "")))
 
         # New operation. Fail before creating anything if no agent can run it.
@@ -85,11 +89,13 @@ class CalderaExecutor:
         start_time = datetime.now(UTC)
         op = self._client.create_operation(name=op_name, adversary_id=adversary_id, group=self._group)
         operation_id = str(op.get("id", ""))
+        self.last_operation = op
 
         try:
             finished = self._client.wait_for_operation(
                 operation_id, timeout=self._timeout, poll_interval=self._poll_interval
             )
+            self.last_operation = finished
             return self._extract_results(finished, techniques, operation_id)
         except CalderaOperationTimeoutError:
             return [

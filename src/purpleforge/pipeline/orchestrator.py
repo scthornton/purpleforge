@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import yaml
@@ -17,6 +19,7 @@ from purpleforge.execute.atomic_executor import AtomicExecutor
 from purpleforge.execute.caldera_executor import CalderaExecutor
 from purpleforge.ingest.pdf_loader import chunk_documents, load_pdf
 from purpleforge.ingest.ttp_extractor import TTPExtractor
+from purpleforge.logging_config import add_run_log_handler, remove_run_log_handler
 from purpleforge.models.emulation import EmulationMethod, EmulationRecord
 from purpleforge.models.extraction import NormalizedTechnique
 from purpleforge.models.pipeline import PipelineRun, RunStatus, StepStatus
@@ -44,6 +47,17 @@ class PipelineOrchestrator:
         self.store = RunStore(settings.run_base_dir)
         self.skip_advise = skip_advise
 
+    @contextmanager
+    def _run_log(self, run_id: str) -> Iterator[None]:
+        """Record the package logger into run.log for the duration of the block."""
+        run_dir = Path(self.settings.run_base_dir) / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        handler = add_run_log_handler(run_dir / "run.log")
+        try:
+            yield
+        finally:
+            remove_run_log_handler(handler)
+
     def start_run(self, source_path: str) -> str:
         """Start a new pipeline run: create run, execute INGEST, pause at AWAITING_REVIEW.
 
@@ -61,11 +75,12 @@ class PipelineOrchestrator:
         )
         run_id = run.run_id
 
-        try:
-            self._step_ingest(run_id, source_path)
-        except Exception as e:
-            self.store.fail_step(run_id, "INGEST", str(e))
-            raise
+        with self._run_log(run_id):
+            try:
+                self._step_ingest(run_id, source_path)
+            except Exception as e:
+                self.store.fail_step(run_id, "INGEST", str(e))
+                raise
 
         return run_id
 
@@ -170,7 +185,7 @@ class PipelineOrchestrator:
             {"techniques": [t.model_dump(mode="json") for t in techniques]},
         )
 
-        with self.store.locked(run_id):
+        with self._run_log(run_id), self.store.locked(run_id):
             self._run_steps(run_id, 0)
 
     def resume_run(self, run_id: str) -> None:
@@ -193,7 +208,7 @@ class PipelineOrchestrator:
 
         start_index = self._resume_index(run)
         logger.info("Resuming run %s from step %s", run_id, STEP_SEQUENCE[start_index])
-        with self.store.locked(run_id):
+        with self._run_log(run_id), self.store.locked(run_id):
             self._run_steps(run_id, start_index)
 
     def _resume_index(self, run: PipelineRun) -> int:
@@ -237,6 +252,8 @@ class PipelineOrchestrator:
                 raise
 
         self.store.update_status(run_id, RunStatus.COMPLETE)
+        # Record a tamper-evident manifest of the evidence set.
+        self.store.write_manifest(run_id)
 
     def _step_ingest(self, run_id: str, source_path: str) -> None:
         """INGEST step: load the PDF, chunk it, and extract TTPs for operator review."""
@@ -370,6 +387,11 @@ class PipelineOrchestrator:
                 group=self.settings.caldera_group,
             )
             all_records.extend(executor.execute(caldera_techs))
+
+            # Persist the Caldera operation so a coverage claim can be re-audited
+            # against the operation chain later.
+            if executor.last_operation is not None:
+                self.store.write_artifact(run_id, "caldera_operation.json", executor.last_operation)
 
         # Execute Atomic tests sequentially
         if atomic_techs:
