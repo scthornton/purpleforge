@@ -223,3 +223,66 @@ class TestOrchestratorConfirm:
 
         with pytest.raises(PipelineError, match="not found"):
             orchestrator.confirm_run(run.run_id)
+
+
+class TestResume:
+    """Resume a failed or interrupted run from its first incomplete step."""
+
+    def _failed_at_validate(self, orchestrator: PipelineOrchestrator) -> str:
+        """Create a run with RESOLVE, EXECUTE, WAIT complete and VALIDATE failed."""
+        run = orchestrator.store.create_run("/tmp/test.pdf")
+        for step in ("RESOLVE", "EXECUTE", "WAIT"):
+            orchestrator.store.start_step(run.run_id, step)
+            orchestrator.store.complete_step(run.run_id, step)
+        orchestrator.store.start_step(run.run_id, "VALIDATE")
+        orchestrator.store.fail_step(run.run_id, "VALIDATE", "boom")
+        return run.run_id
+
+    @patch.object(PipelineOrchestrator, "_step_advise")
+    @patch.object(PipelineOrchestrator, "_step_report")
+    @patch.object(PipelineOrchestrator, "_step_validate")
+    @patch.object(PipelineOrchestrator, "_step_execute")
+    @patch.object(PipelineOrchestrator, "_step_resolve")
+    def test_resume_runs_only_remaining_steps(
+        self,
+        mock_resolve: MagicMock,
+        mock_execute: MagicMock,
+        mock_validate: MagicMock,
+        mock_report: MagicMock,
+        mock_advise: MagicMock,
+        mock_settings: MagicMock,
+    ) -> None:
+        orchestrator = PipelineOrchestrator(mock_settings)
+        run_id = self._failed_at_validate(orchestrator)
+
+        orchestrator.resume_run(run_id)
+
+        mock_resolve.assert_not_called()
+        mock_execute.assert_not_called()
+        mock_validate.assert_called_once()
+        mock_report.assert_called_once()
+        mock_advise.assert_called_once()
+        assert orchestrator.store.load_run(run_id).status == RunStatus.COMPLETE
+
+    def test_resume_awaiting_review_raises(self, mock_settings: MagicMock) -> None:
+        orchestrator = PipelineOrchestrator(mock_settings)
+        run = orchestrator.store.create_run("/tmp/test.pdf")
+        orchestrator.store.update_status(run.run_id, RunStatus.AWAITING_REVIEW)
+        with pytest.raises(PipelineError, match="confirm"):
+            orchestrator.resume_run(run.run_id)
+
+    def test_resume_complete_raises(self, mock_settings: MagicMock) -> None:
+        orchestrator = PipelineOrchestrator(mock_settings)
+        run = orchestrator.store.create_run("/tmp/test.pdf")
+        orchestrator.store.update_status(run.run_id, RunStatus.COMPLETE)
+        with pytest.raises(PipelineError, match="already complete"):
+            orchestrator.resume_run(run.run_id)
+
+    @patch.object(PipelineOrchestrator, "_step_validate", side_effect=RuntimeError("fail"))
+    def test_resume_releases_lock_on_failure(self, _mock_validate: MagicMock, mock_settings: MagicMock) -> None:
+        orchestrator = PipelineOrchestrator(mock_settings)
+        run_id = self._failed_at_validate(orchestrator)
+        with pytest.raises(RuntimeError):
+            orchestrator.resume_run(run_id)
+        lock = Path(orchestrator.store.base_dir) / run_id / ".lock"
+        assert not lock.exists()

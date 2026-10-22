@@ -6,7 +6,6 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
 
 import yaml
 
@@ -20,7 +19,7 @@ from purpleforge.ingest.pdf_loader import chunk_documents, load_pdf
 from purpleforge.ingest.ttp_extractor import TTPExtractor
 from purpleforge.models.emulation import EmulationMethod, EmulationRecord
 from purpleforge.models.extraction import NormalizedTechnique
-from purpleforge.models.pipeline import RunStatus
+from purpleforge.models.pipeline import PipelineRun, RunStatus, StepStatus
 from purpleforge.pipeline.run_store import RunStore
 from purpleforge.report.advisory_generator import AdvisoryGenerator
 from purpleforge.report.coverage_analyzer import CoverageAnalyzer
@@ -32,8 +31,13 @@ from purpleforge.validate.detection_validator import DetectionValidator
 logger = logging.getLogger(__name__)
 
 
+# Post-review steps in order. Each reads its inputs from the run directory, so any
+# step can start on its own, which is what makes a run resumable.
+STEP_SEQUENCE = ["RESOLVE", "EXECUTE", "WAIT", "VALIDATE", "REPORT", "ADVISE"]
+
+
 class PipelineOrchestrator:
-    """State machine: INGEST → REVIEW → RESOLVE → EXECUTE → WAIT → VALIDATE → REPORT → ADVISE."""
+    """State machine: INGEST, REVIEW, RESOLVE, EXECUTE, WAIT, VALIDATE, REPORT, ADVISE."""
 
     def __init__(self, settings: PurpleForgeSettings, skip_advise: bool = False) -> None:
         self.settings = settings
@@ -159,49 +163,78 @@ class PipelineOrchestrator:
 
         logger.info("Confirmed %d techniques for run %s", len(techniques), run_id)
 
-        # Store confirmed techniques
+        # Store confirmed techniques for the resolve step to read.
         self.store.write_artifact(
             run_id,
             "confirmed_ttps.yaml",
             {"techniques": [t.model_dump(mode="json") for t in techniques]},
         )
 
-        # RESOLVE → EXECUTE → WAIT
-        try:
-            execution_plan = self._step_resolve(run_id, techniques)
-        except Exception as e:
-            self.store.fail_step(run_id, "RESOLVE", str(e))
-            raise
+        with self.store.locked(run_id):
+            self._run_steps(run_id, 0)
 
-        try:
-            self._step_execute(run_id, execution_plan)
-        except Exception as e:
-            self.store.fail_step(run_id, "EXECUTE", str(e))
-            raise
+    def resume_run(self, run_id: str) -> None:
+        """Resume a failed or interrupted run from its first incomplete step.
 
-        self._step_wait(run_id)
+        Runs the same remaining steps as confirm_run, so the same credentials
+        are required. Refuses runs that have nothing to resume.
+        """
+        self.settings.require_caldera()
+        self.settings.require_limacharlie()
+        self.settings.require_winrm()
 
-        # VALIDATE → REPORT
-        try:
-            self._step_validate(run_id)
-        except Exception as e:
-            self.store.fail_step(run_id, "VALIDATE", str(e))
-            raise
+        run = self.store.load_run(run_id)
+        if run.status == RunStatus.AWAITING_REVIEW:
+            raise PipelineError(f"Run {run_id} is awaiting review; use 'confirm' to start it, not 'resume'.")
+        if run.status in (RunStatus.CREATED, RunStatus.INGESTING):
+            raise PipelineError(f"Run {run_id} has not reached the review gate; nothing to resume.")
+        if run.status == RunStatus.COMPLETE:
+            raise PipelineError(f"Run {run_id} is already complete; nothing to resume.")
 
-        try:
-            self._step_report(run_id)
-        except Exception as e:
-            self.store.fail_step(run_id, "REPORT", str(e))
-            raise
+        start_index = self._resume_index(run)
+        logger.info("Resuming run %s from step %s", run_id, STEP_SEQUENCE[start_index])
+        with self.store.locked(run_id):
+            self._run_steps(run_id, start_index)
 
-        # ADVISE (optional, check both instance flag and persisted config)
-        skip = self.skip_advise or run.config_snapshot.get("skip_advise", False)
-        if not skip:
+    def _resume_index(self, run: PipelineRun) -> int:
+        """Return the index of the first post-review step that has not completed."""
+        completed = {s.step_name for s in run.steps if s.status == StepStatus.COMPLETE}
+        for index, name in enumerate(STEP_SEQUENCE):
+            if name not in completed:
+                return index
+        return len(STEP_SEQUENCE)
+
+    def _run_steps(self, run_id: str, start_index: int) -> None:
+        """Run the post-review steps from start_index to the end, then mark the run complete.
+
+        Each step records its own start and completion; a failure marks the step
+        failed and aborts, except ADVISE, whose failure is non-fatal.
+        """
+        run = self.store.load_run(run_id)
+        skip_advise = self.skip_advise or run.config_snapshot.get("skip_advise", False)
+        step_methods = {
+            "RESOLVE": self._step_resolve,
+            "EXECUTE": self._step_execute,
+            "WAIT": self._step_wait,
+            "VALIDATE": self._step_validate,
+            "REPORT": self._step_report,
+        }
+
+        for name in STEP_SEQUENCE[start_index:]:
+            if name == "ADVISE":
+                if skip_advise:
+                    continue
+                try:
+                    self._step_advise(run_id)
+                except Exception as e:
+                    # Advisory failures are non-fatal.
+                    logger.warning("Advisory generation failed: %s", e)
+                continue
             try:
-                self._step_advise(run_id)
+                step_methods[name](run_id)
             except Exception as e:
-                # Advisory failures are non-fatal
-                logger.warning("Advisory generation failed: %s", e)
+                self.store.fail_step(run_id, name, str(e))
+                raise
 
         self.store.update_status(run_id, RunStatus.COMPLETE)
 
@@ -262,10 +295,17 @@ class PipelineOrchestrator:
         self.store.complete_step(run_id, "INGEST", artifact_path="extracted_ttps.yaml")
         self.store.update_status(run_id, RunStatus.AWAITING_REVIEW)
 
-    def _step_resolve(self, run_id: str, techniques: list[NormalizedTechnique]) -> list[dict[str, Any]]:
-        """RESOLVE step: map techniques to Caldera abilities or Atomic tests."""
+    def _step_resolve(self, run_id: str) -> None:
+        """RESOLVE step: map confirmed techniques to Caldera abilities or Atomic tests.
+
+        Reads confirmed_ttps.yaml from the run directory, so the step can run on
+        its own during a resume.
+        """
         self.store.update_status(run_id, RunStatus.RESOLVING)
         self.store.start_step(run_id, "RESOLVE")
+
+        ttps_data = self.store.read_artifact(run_id, "confirmed_ttps.yaml")
+        techniques = [NormalizedTechnique.model_validate(t) for t in ttps_data.get("techniques", [])]
 
         caldera = CalderaClient(
             base_url=self.settings.caldera_url,
@@ -298,16 +338,19 @@ class PipelineOrchestrator:
             plan.skip_count,
         )
 
-        return list(plan_data["techniques"])
+    def _step_execute(self, run_id: str) -> None:
+        """EXECUTE step: run Caldera operations and Atomic tests.
 
-    def _step_execute(self, run_id: str, resolved_techniques: list[dict[str, Any]]) -> list[EmulationRecord]:
-        """EXECUTE step: run Caldera operations and Atomic tests."""
+        Reads execution_plan.yaml from the run directory, so the step can run on
+        its own during a resume.
+        """
         self.store.update_status(run_id, RunStatus.EXECUTING)
         self.store.start_step(run_id, "EXECUTE")
 
         from purpleforge.models.emulation import ResolvedTechnique
 
-        techniques = [ResolvedTechnique.model_validate(t) for t in resolved_techniques]
+        plan_data = self.store.read_artifact(run_id, "execution_plan.yaml")
+        techniques = [ResolvedTechnique.model_validate(t) for t in plan_data.get("techniques", [])]
         caldera_techs = [t for t in techniques if t.method == EmulationMethod.CALDERA]
         atomic_techs = [t for t in techniques if t.method == EmulationMethod.ATOMIC]
 
@@ -350,7 +393,6 @@ class PipelineOrchestrator:
         self.store.complete_step(run_id, "EXECUTE", artifact_path="emulation_results.yaml")
 
         logger.info("Executed %d techniques", len(all_records))
-        return all_records
 
     def _step_wait(self, run_id: str) -> None:
         """WAIT step: sleep for detection propagation delay."""

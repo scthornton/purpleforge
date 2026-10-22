@@ -202,3 +202,35 @@ class TestRunStoreList:
         junk.mkdir()
         runs = run_store.list_runs()
         assert len(runs) == 1
+
+
+class TestRunStoreLock:
+    def test_acquire_then_second_acquire_raises(self, run_store: RunStore) -> None:
+        from purpleforge.pipeline.run_store import RunLockedError
+
+        run = run_store.create_run("/tmp/test.pdf")
+        run_store.acquire_lock(run.run_id)
+        with pytest.raises(RunLockedError, match="locked"):
+            run_store.acquire_lock(run.run_id)
+
+    def test_release_lets_acquire_again(self, run_store: RunStore) -> None:
+        run = run_store.create_run("/tmp/test.pdf")
+        run_store.acquire_lock(run.run_id)
+        run_store.release_lock(run.run_id)
+        # Should not raise now that the lock is gone.
+        run_store.acquire_lock(run.run_id)
+
+    def test_release_missing_lock_is_safe(self, run_store: RunStore) -> None:
+        run = run_store.create_run("/tmp/test.pdf")
+        run_store.release_lock(run.run_id)  # no lock yet; must not raise
+
+    def test_locked_context_releases_on_error(self, run_store: RunStore) -> None:
+        from purpleforge.pipeline.run_store import LOCK_FILENAME
+
+        run = run_store.create_run("/tmp/test.pdf")
+        lock_path = Path(run_store.base_dir) / run.run_id / LOCK_FILENAME
+        with pytest.raises(ValueError):
+            with run_store.locked(run.run_id):
+                assert lock_path.exists()
+                raise ValueError("boom")
+        assert not lock_path.exists()
