@@ -265,6 +265,7 @@ class PipelineOrchestrator:
                 run_id=run_id,
                 timeout=self.settings.caldera_operation_timeout,
                 poll_interval=self.settings.caldera_poll_interval,
+                group=self.settings.caldera_group,
             )
             all_records.extend(executor.execute(caldera_techs))
 

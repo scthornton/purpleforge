@@ -18,6 +18,7 @@ class PurpleForgeSettings(BaseSettings):
     # Caldera
     caldera_url: str = "http://localhost:8888"
     caldera_api_key: SecretStr
+    caldera_group: str = "red"
 
     # LimaCharlie
     lc_api_key: SecretStr
@@ -30,7 +31,7 @@ class PurpleForgeSettings(BaseSettings):
     winrm_transport: str = "ntlm"
     winrm_port: int = 5985
 
-    # GitHub (optional — only needed for deploy-draft --target github)
+    # GitHub (optional, only needed for deploy-draft --target github)
     github_token: SecretStr | None = None
     detection_repo: str | None = None
 
