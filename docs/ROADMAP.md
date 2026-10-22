@@ -10,19 +10,27 @@ no database, no plugin framework, no agent framework.
 
 | Item | Finding | Status | PR |
 |---|---|---|---|
-| CI with lint, format, type check, tests; version single-sourced | F24 (part) | open | |
-| Run artifacts round-trip through YAML; integration test for `confirm` | F1 | open | |
-| Atomic file writes use `Path.replace` | F7 | open | |
-| LimaCharlie JWT exchange and historic detections endpoint | F2 | open | |
-| Tolerant timestamp parsing (seconds, milliseconds, ISO) | F5 | open | |
-| Retry only transport errors, 429, and 5xx | F6 | open | |
-| Tag normalization for `attack.tXXXX` style tags | F12 | open | |
-| HTML template packaged in the wheel | F3 | open | |
-| Advisory confidence as `Literal`; Sigma YAML validated | F14 | open | |
-| Configurable Caldera agent group; fail when no agents match | F8 | open | |
-| Real Caldera timestamps and link output | F4 | open | |
+| CI with lint, format, type check, tests; version single-sourced | F24 (part) | done | #12 |
+| Run artifacts round-trip through YAML; integration test for `confirm` | F1 | done | #15 |
+| Atomic file writes use `Path.replace` | F7 | done | #15 |
+| LimaCharlie JWT exchange and historic detections endpoint | F2 | done | #17 |
+| Tolerant timestamp parsing (seconds, milliseconds, ISO) | F5 | done | #17 |
+| Retry only transport errors, 429, and 5xx | F6 | done | #17, #18 |
+| Tag normalization for `attack.tXXXX` style tags | F12 | done | #17 |
+| HTML template packaged in the wheel | F3 | done | #16 |
+| Advisory confidence as `Literal`; Sigma YAML validated | F14 | done | #16 |
+| Configurable Caldera agent group; fail when no agents match | F8 | done | #18 |
+| Real Caldera timestamps and link output | F4 | done | #18 |
 
 Exit criterion: a full `run` and `confirm` completes against the lab from a wheel install.
+
+Phase 0 code is merged. The pipeline now round-trips its artifacts and completes end to end
+against mocked integrations (integration test in `tests/integration/test_confirm_pipeline.py`).
+The remaining exit step, a live lab run from a wheel install, needs a Caldera server, a
+LimaCharlie organization, and a Windows WinRM target, so it stays open until that run is done.
+The LimaCharlie endpoint and auth flow were built from the vendor SDK source, not verified
+against a live tenant. Still open from Phase 0 scope: platform-aware Caldera ability selection
+(noted under F8).
 
 ## Phase 1: trustworthy evidence, lean core
 
@@ -57,3 +65,9 @@ Exit criterion: every coverage number can be defended from the run directory; un
 
 | Date | PR | Summary |
 |---|---|---|
+| 2026-10-22 | #11 | Assessment, roadmap, and changelog added. |
+| 2026-10-22 | #12 | CI (lint, format, mypy, tests on 3.11 to 3.13, wheel smoke test); version single-sourced; Dependabot and pre-commit. |
+| 2026-10-22 | #15 | YAML artifacts round-trip with `model_dump(mode="json")`; `Path.replace` for atomic writes; end-to-end integration test. |
+| 2026-10-22 | #17 | LimaCharlie JWT auth, insight detections query, tolerant timestamps, correct retry policy, tag normalization. |
+| 2026-10-22 | #18 | Caldera retry policy, configurable agent group with fail-fast, real link timestamps and output, adversary cleanup. |
+| 2026-10-22 | #16 | Report template packaged in the wheel; Sigma draft validation and typed confidence. |
