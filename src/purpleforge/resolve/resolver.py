@@ -126,9 +126,7 @@ class Resolver:
         """Return the set of platforms of the connected agents, or None when unknown."""
         try:
             agents = self._caldera.get_agents()
-            found: set[str] = {
-                str(p) for a in agents if isinstance(a, dict) and (p := a.get("platform"))
-            }
+            found: set[str] = {str(p) for a in agents if isinstance(a, dict) and (p := a.get("platform"))}
         except Exception:
             # Agents unavailable: treat platforms as unknown and do not filter.
             return None
