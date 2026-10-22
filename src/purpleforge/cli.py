@@ -63,8 +63,13 @@ def _print_run_summary(orchestrator: PipelineOrchestrator, settings: PurpleForge
 
 @click.group()
 @click.version_option(version=__version__, prog_name="purpleforge")
-def cli() -> None:
+@click.option("-v", "--verbose", is_flag=True, help="Verbose (debug) logging")
+@click.option("-q", "--quiet", is_flag=True, help="Quiet logging (warnings and errors only)")
+def cli(verbose: bool, quiet: bool) -> None:
     """PurpleForge: Evidence-driven purple team pipeline."""
+    from purpleforge.logging_config import setup_logging
+
+    setup_logging(verbose=verbose, quiet=quiet)
 
 
 @cli.command()

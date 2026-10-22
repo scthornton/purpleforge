@@ -55,3 +55,9 @@ class PipelineRun(BaseModel):
     steps: list[PipelineStep] = Field(default_factory=list)
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+
+    # Audit fields, recorded at creation. Defaults keep older run_state files loadable.
+    schema_version: str = "1"
+    tool_version: str = ""
+    operator: str = ""
+    host: str = ""

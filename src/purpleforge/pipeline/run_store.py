@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import getpass
+import hashlib
 import json
 import os
+import socket
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -12,9 +15,24 @@ from typing import Any
 
 import yaml
 
+from purpleforge import __version__
 from purpleforge.models.pipeline import PipelineRun, PipelineStep, RunStatus, StepStatus
 
 LOCK_FILENAME = ".lock"
+MANIFEST_FILENAME = "manifest.json"
+LOG_FILENAME = "run.log"
+
+# Files excluded from the evidence manifest: the lock, the manifest itself, the
+# run log, and any in-progress temp file.
+_MANIFEST_EXCLUDE = {LOCK_FILENAME, MANIFEST_FILENAME, LOG_FILENAME}
+
+
+def _current_operator() -> str:
+    """Best-effort local operator name, empty when it cannot be determined."""
+    try:
+        return getpass.getuser()
+    except Exception:
+        return os.environ.get("USER", "")
 
 
 class RunLockedError(Exception):
@@ -66,7 +84,13 @@ class RunStore:
 
     def create_run(self, source_path: str, config_snapshot: dict[str, Any] | None = None) -> PipelineRun:
         """Create a new run directory and initialize run_state.yaml."""
-        run = PipelineRun(source_path=source_path, config_snapshot=config_snapshot or {})
+        run = PipelineRun(
+            source_path=source_path,
+            config_snapshot=config_snapshot or {},
+            tool_version=__version__,
+            operator=_current_operator(),
+            host=socket.gethostname(),
+        )
         run_dir = self._run_dir(run.run_id)
         run_dir.mkdir(parents=True, exist_ok=True)
         self._write_state(run)
@@ -163,6 +187,41 @@ class RunStore:
         if filename.endswith(".yaml") or filename.endswith(".yml"):
             return yaml.safe_load(text)
         return json.loads(text)
+
+    def write_manifest(self, run_id: str) -> Path:
+        """Write manifest.json: a SHA-256 and size for every artifact in the run.
+
+        The manifest makes the evidence set tamper-evident. The lock file, the
+        manifest itself, the run log, and any temp file are excluded. Entries are
+        sorted by file name so the manifest is stable across runs.
+        """
+        run_dir = self._run_dir(run_id)
+        entries: list[dict[str, Any]] = []
+        for path in sorted(run_dir.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.name in _MANIFEST_EXCLUDE or path.suffix == ".tmp":
+                continue
+            raw = path.read_bytes()
+            entries.append(
+                {
+                    "name": path.relative_to(run_dir).as_posix(),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                    "size": len(raw),
+                }
+            )
+
+        manifest = {
+            "schema_version": "1",
+            "tool_version": __version__,
+            "generated_at": datetime.now(UTC).isoformat(),
+            "files": entries,
+        }
+        target = run_dir / MANIFEST_FILENAME
+        tmp = target.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(manifest, indent=2))
+        tmp.replace(target)
+        return target
 
     def list_runs(self) -> list[PipelineRun]:
         """List all runs from the base directory, sorted by creation time descending."""
