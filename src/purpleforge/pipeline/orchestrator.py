@@ -222,6 +222,10 @@ class PipelineOrchestrator:
             password=self.settings.winrm_password.get_secret_value(),
             port=self.settings.winrm_port,
             transport=self.settings.winrm_transport,
+            use_https=self.settings.winrm_use_https,
+            server_cert_validation=self.settings.winrm_cert_validation,
+            ca_trust_path=self.settings.winrm_ca_trust_path,
+            installer_ref=self.settings.atomic_installer_ref,
         )
 
         resolver = Resolver(caldera=caldera, atomic=atomic)
@@ -277,8 +281,12 @@ class PipelineOrchestrator:
                 password=self.settings.winrm_password.get_secret_value(),
                 port=self.settings.winrm_port,
                 transport=self.settings.winrm_transport,
+                use_https=self.settings.winrm_use_https,
+                server_cert_validation=self.settings.winrm_cert_validation,
+                ca_trust_path=self.settings.winrm_ca_trust_path,
+                installer_ref=self.settings.atomic_installer_ref,
             )
-            executor_atomic = AtomicExecutor(runner)
+            executor_atomic = AtomicExecutor(runner, test_timeout=self.settings.atomic_test_timeout)
             all_records.extend(executor_atomic.execute(atomic_techs))
 
         # Write results

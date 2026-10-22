@@ -354,6 +354,39 @@ def list_runs() -> None:
     console.print(table)
 
 
+@cli.command("install-atomic")
+def install_atomic() -> None:
+    """Install Atomic Red Team on the configured WinRM target (explicit operator action).
+
+    This reaches the pinned upstream installer and runs it on the target host.
+    Run it only against a host you own or are authorized to test. Installation is
+    never performed automatically by run or confirm.
+    """
+    from purpleforge.clients.atomic_runner import AtomicInstallError, AtomicRunner, WinRMConnectionError
+    from purpleforge.config import PurpleForgeSettings
+
+    settings = PurpleForgeSettings()  # type: ignore[call-arg]
+    runner = AtomicRunner(
+        host=settings.winrm_host,
+        user=settings.winrm_user,
+        password=settings.winrm_password.get_secret_value(),
+        port=settings.winrm_port,
+        transport=settings.winrm_transport,
+        use_https=settings.winrm_use_https,
+        server_cert_validation=settings.winrm_cert_validation,
+        ca_trust_path=settings.winrm_ca_trust_path,
+        installer_ref=settings.atomic_installer_ref,
+    )
+    console.print(f"Installing Atomic Red Team ({settings.atomic_installer_ref}) on {settings.winrm_host}...")
+    try:
+        runner.check_connection()
+        runner.ensure_atomic_installed()
+    except (WinRMConnectionError, AtomicInstallError) as e:
+        console.print(f"[red]Install failed: {e}[/red]")
+        raise SystemExit(1)
+    console.print("[green]Atomic Red Team is installed.[/green]")
+
+
 @cli.command()
 def demo() -> None:
     """Show a sample pipeline run with realistic output (for screenshots/demos)."""
