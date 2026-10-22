@@ -65,6 +65,66 @@ class PipelineOrchestrator:
 
         return run_id
 
+    def start_run_from_ttps(self, ttps_path: str) -> str:
+        """Create a run from an operator-provided technique list, skipping LLM extraction.
+
+        The YAML must be a mapping with a non-empty 'techniques' list, each item
+        carrying at least technique_id, technique_name, tactic, and description.
+        Extra keys (confidence, source_chunk, page, operator_notes) are preserved
+        for the review gate. Returns the run_id; the run pauses at AWAITING_REVIEW.
+        """
+        path = Path(ttps_path)
+        if not path.exists():
+            raise PipelineError(f"TTPs file not found: {path}")
+
+        data = yaml.safe_load(path.read_text())
+        techniques = data.get("techniques") if isinstance(data, dict) else None
+        if not isinstance(techniques, list) or not techniques:
+            raise PipelineError("TTPs file must be a mapping with a non-empty 'techniques' list")
+
+        # Validate each entry has the required fields and a valid technique id.
+        for item in techniques:
+            NormalizedTechnique.model_validate(item)
+
+        run = self.store.create_run(
+            source_path=str(path),
+            config_snapshot={
+                "source": "provided_ttps",
+                "detection_wait_seconds": self.settings.detection_wait_seconds,
+                "caldera_operation_timeout": self.settings.caldera_operation_timeout,
+                "skip_advise": self.skip_advise,
+            },
+        )
+        run_id = run.run_id
+
+        self.store.update_status(run_id, RunStatus.INGESTING)
+        self.store.start_step(run_id, "INGEST")
+
+        techniques_out = []
+        for item in techniques:
+            entry = dict(item)
+            entry.setdefault("operator_notes", "")
+            techniques_out.append(entry)
+
+        run_dir = Path(self.settings.run_base_dir) / run_id
+        ttps_file = run_dir / "extracted_ttps.yaml"
+        header = (
+            f"# PurpleForge Extracted TTPs\n"
+            f"# Run ID: {run_id}\n"
+            f"# Source: {path} (operator-provided technique list)\n"
+            f"#\n"
+            f"# REVIEW INSTRUCTIONS:\n"
+            f"# - Edit, add, or remove techniques as needed\n"
+            f"# - Ensure technique_ids match T####.### format\n"
+            f"# - When ready: purpleforge confirm --run-id {run_id}\n\n"
+        )
+        yaml_content = yaml.dump({"techniques": techniques_out}, default_flow_style=False, sort_keys=False)
+        ttps_file.write_text(header + yaml_content)
+
+        self.store.complete_step(run_id, "INGEST", artifact_path="extracted_ttps.yaml")
+        self.store.update_status(run_id, RunStatus.AWAITING_REVIEW)
+        return run_id
+
     def confirm_run(self, run_id: str, ttps_file: str | None = None) -> None:
         """Confirm extracted TTPs and proceed through remaining pipeline steps.
 
