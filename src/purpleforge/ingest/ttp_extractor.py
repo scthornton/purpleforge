@@ -37,10 +37,12 @@ class TTPExtractor:
             api_key=api_key,  # type: ignore[arg-type]
             temperature=0,
         )
-        self._prompt = ChatPromptTemplate.from_messages([
-            ("system", EXTRACTION_SYSTEM_PROMPT),
-            ("human", "Threat report content:\n\n{context}"),
-        ])
+        self._prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", EXTRACTION_SYSTEM_PROMPT),
+                ("human", "Threat report content:\n\n{context}"),
+            ]
+        )
 
     def extract(self, chunks: list[Document]) -> list[ExtractedTTP]:
         """Extract TTPs from document chunks using structured LLM output.

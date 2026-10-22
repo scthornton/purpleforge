@@ -234,7 +234,9 @@ class PipelineOrchestrator:
 
         logger.info(
             "Resolved: %d caldera, %d atomic, %d skipped",
-            plan.caldera_count, plan.atomic_count, plan.skip_count,
+            plan.caldera_count,
+            plan.atomic_count,
+            plan.skip_count,
         )
 
         return list(plan_data["techniques"])
@@ -355,10 +357,7 @@ class PipelineOrchestrator:
 
         # Load execution plan to find skipped techniques
         plan_data = self.store.read_artifact(run_id, "execution_plan.yaml")
-        skipped = [
-            t["technique_id"] for t in plan_data.get("techniques", [])
-            if t.get("method") == "skip"
-        ]
+        skipped = [t["technique_id"] for t in plan_data.get("techniques", []) if t.get("method") == "skip"]
 
         # Coverage analysis
         analyzer = CoverageAnalyzer()
@@ -366,7 +365,8 @@ class PipelineOrchestrator:
 
         # Write coverage report JSON
         self.store.write_artifact(
-            run_id, "coverage_report.json",
+            run_id,
+            "coverage_report.json",
             json_mod.loads(result.model_dump_json()),
         )
 
@@ -384,10 +384,12 @@ class PipelineOrchestrator:
         self.store.complete_step(run_id, "REPORT", artifact_path="coverage_report.json")
         logger.info(
             "Report: coverage=%.1f%% (D:%d P:%d M:%d S:%d)",
-            result.coverage_pct, result.detected_count, result.partial_count,
-            result.missed_count, result.skipped_count,
+            result.coverage_pct,
+            result.detected_count,
+            result.partial_count,
+            result.missed_count,
+            result.skipped_count,
         )
-
 
     def _step_advise(self, run_id: str) -> None:
         """ADVISE step: generate Sigma rule drafts for missed techniques."""

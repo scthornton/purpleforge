@@ -23,18 +23,14 @@ def caldera() -> CalderaClient:
 class TestCalderaGetAbilities:
     @respx.mock
     def test_returns_abilities(self, caldera: CalderaClient) -> None:
-        respx.get("http://localhost:8888/api/v2/abilities").mock(
-            return_value=httpx.Response(200, json=ABILITIES)
-        )
+        respx.get("http://localhost:8888/api/v2/abilities").mock(return_value=httpx.Response(200, json=ABILITIES))
         result = caldera.get_abilities()
         assert len(result) == 10
         assert result[0]["ability_id"] == "abc-001"
 
     @respx.mock
     def test_connection_error(self, caldera: CalderaClient) -> None:
-        respx.get("http://localhost:8888/api/v2/abilities").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        respx.get("http://localhost:8888/api/v2/abilities").mock(side_effect=httpx.ConnectError("Connection refused"))
         with pytest.raises(CalderaConnectionError):
             caldera.get_abilities()
 
@@ -42,18 +38,14 @@ class TestCalderaGetAbilities:
 class TestCalderaFindAbilities:
     @respx.mock
     def test_exact_match(self, caldera: CalderaClient) -> None:
-        respx.get("http://localhost:8888/api/v2/abilities").mock(
-            return_value=httpx.Response(200, json=ABILITIES)
-        )
+        respx.get("http://localhost:8888/api/v2/abilities").mock(return_value=httpx.Response(200, json=ABILITIES))
         result = caldera.find_abilities_by_technique("T1059.001")
         assert len(result) == 1
         assert result[0]["ability_id"] == "abc-002"
 
     @respx.mock
     def test_parent_fallback(self, caldera: CalderaClient) -> None:
-        respx.get("http://localhost:8888/api/v2/abilities").mock(
-            return_value=httpx.Response(200, json=ABILITIES)
-        )
+        respx.get("http://localhost:8888/api/v2/abilities").mock(return_value=httpx.Response(200, json=ABILITIES))
         # T1003.001 doesn't exist, but T1003 doesn't either in our fixture
         # T1059.003 doesn't exist, but T1059 does
         result = caldera.find_abilities_by_technique("T1059.003")
@@ -62,9 +54,7 @@ class TestCalderaFindAbilities:
 
     @respx.mock
     def test_no_match(self, caldera: CalderaClient) -> None:
-        respx.get("http://localhost:8888/api/v2/abilities").mock(
-            return_value=httpx.Response(200, json=ABILITIES)
-        )
+        respx.get("http://localhost:8888/api/v2/abilities").mock(return_value=httpx.Response(200, json=ABILITIES))
         result = caldera.find_abilities_by_technique("T9999")
         assert len(result) == 0
 

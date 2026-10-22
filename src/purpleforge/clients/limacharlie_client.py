@@ -63,15 +63,10 @@ class LimaCharlieClient:
         data = resp.json()
         return data.get("detects", [])  # type: ignore[no-any-return]
 
-    def get_detections_by_time_range(
-        self, start: datetime, end: datetime, limit: int = 1000
-    ) -> list[dict[str, Any]]:
+    def get_detections_by_time_range(self, start: datetime, end: datetime, limit: int = 1000) -> list[dict[str, Any]]:
         """Get detections filtered to a time range."""
         all_detections = self.get_detections(limit=limit)
-        return [
-            d for d in all_detections
-            if self._detection_in_range(d, start, end)
-        ]
+        return [d for d in all_detections if self._detection_in_range(d, start, end)]
 
     def search_detections_by_technique(
         self, technique_id: str, detections: list[dict[str, Any]]

@@ -80,9 +80,7 @@ class CalderaClient:
         resp = self._request("GET", "/api/v2/operations")
         return resp.json()  # type: ignore[no-any-return]
 
-    def create_operation(
-        self, name: str, adversary_id: str, group: str = "purple_team"
-    ) -> dict[str, Any]:
+    def create_operation(self, name: str, adversary_id: str, group: str = "purple_team") -> dict[str, Any]:
         """POST /api/v2/operations — create and start an operation."""
         payload = {
             "name": name,
@@ -99,9 +97,7 @@ class CalderaClient:
         resp = self._request("GET", f"/api/v2/operations/{operation_id}")
         return resp.json()  # type: ignore[no-any-return]
 
-    def wait_for_operation(
-        self, operation_id: str, timeout: int = 300, poll_interval: int = 5
-    ) -> dict[str, Any]:
+    def wait_for_operation(self, operation_id: str, timeout: int = 300, poll_interval: int = 5) -> dict[str, Any]:
         """Poll operation until state=finished or timeout."""
         start = time.monotonic()
         while True:

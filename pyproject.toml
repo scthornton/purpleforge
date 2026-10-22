@@ -1,9 +1,23 @@
 [project]
 name = "purpleforge"
-version = "0.1.0"
-description = "Evidence-driven purple team pipeline for SANS SEC598"
+dynamic = ["version"]
+description = "Evidence-driven purple team pipeline: emulate techniques, validate detections, report proof chains"
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 authors = [{name = "Scott Thornton", email = "scott@perfecxion.ai"}]
+keywords = ["purple-team", "mitre-attack", "detection-engineering", "caldera", "limacharlie"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+]
 
 dependencies = [
     "langchain-core>=0.3",
@@ -38,6 +52,12 @@ dev = [
     "types-PyYAML>=6.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/scthornton/purpleforge"
+Repository = "https://github.com/scthornton/purpleforge"
+Issues = "https://github.com/scthornton/purpleforge/issues"
+Changelog = "https://github.com/scthornton/purpleforge/blob/main/CHANGELOG.md"
+
 [project.scripts]
 purpleforge = "purpleforge.cli:cli"
 
@@ -45,11 +65,14 @@ purpleforge = "purpleforge.cli:cli"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/purpleforge/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/purpleforge"]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py311"
 line-length = 120
 src = ["src"]
 
@@ -58,9 +81,14 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-ra"
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.11"
 strict = true
 packages = ["purpleforge"]
 mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["github.*"]
+ignore_missing_imports = true

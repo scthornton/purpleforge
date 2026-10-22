@@ -58,9 +58,7 @@ class DetectionValidator:
             window_start = earliest_start - timedelta(seconds=self._query_buffer)
             window_end = latest_end + timedelta(seconds=detection_wait + self._query_buffer)
 
-            all_detections = self._client.get_detections_by_time_range(
-                start=window_start, end=window_end
-            )
+            all_detections = self._client.get_detections_by_time_range(start=window_start, end=window_end)
             logger.info("Fetched %d detections in query window", len(all_detections))
 
         for record in successful:
@@ -78,9 +76,7 @@ class DetectionValidator:
         return chains
 
     @staticmethod
-    def _apply_metadata(
-        chain: EvidenceChain, meta: dict[str, dict[str, str]]
-    ) -> None:
+    def _apply_metadata(chain: EvidenceChain, meta: dict[str, dict[str, str]]) -> None:
         """Fill in technique_name and tactic from the metadata lookup."""
         info = meta.get(chain.technique_id, {})
         if info.get("name"):
@@ -103,10 +99,7 @@ class DetectionValidator:
         query_end = end + timedelta(seconds=detection_wait + self._query_buffer)
 
         # Filter detections to this technique's query window
-        windowed = [
-            d for d in all_detections
-            if self._in_window(d, query_start, query_end)
-        ]
+        windowed = [d for d in all_detections if self._in_window(d, query_start, query_end)]
 
         # Search by technique tag (exact, then parent)
         tag_matches = self._client.search_detections_by_technique(tid, windowed)
@@ -119,19 +112,19 @@ class DetectionValidator:
             match_type = MatchType(m["_match_type"])
             ts = m.get("ts", 0)
             alert_time = (
-                datetime.fromtimestamp(ts, tz=UTC)
-                if isinstance(ts, int | float)
-                else datetime.fromisoformat(str(ts))
+                datetime.fromtimestamp(ts, tz=UTC) if isinstance(ts, int | float) else datetime.fromisoformat(str(ts))
             )
-            matching_alerts.append(DetectionMatch(
-                alert_id=m.get("detect_id", ""),
-                alert_timestamp=alert_time,
-                rule_name=m.get("detect_mtd", {}).get("description", "Unknown"),
-                matched_tag=m["_matched_tag"],
-                match_type=match_type,
-                alert_description=m.get("detect_mtd", {}).get("description", ""),
-                raw_alert=m.get("detect", {}),
-            ))
+            matching_alerts.append(
+                DetectionMatch(
+                    alert_id=m.get("detect_id", ""),
+                    alert_timestamp=alert_time,
+                    rule_name=m.get("detect_mtd", {}).get("description", "Unknown"),
+                    matched_tag=m["_matched_tag"],
+                    match_type=match_type,
+                    alert_description=m.get("detect_mtd", {}).get("description", ""),
+                    raw_alert=m.get("detect", {}),
+                )
+            )
             if match_type == MatchType.EXACT_TECHNIQUE:
                 best_match = MatchType.EXACT_TECHNIQUE
             elif match_type == MatchType.PARENT_TECHNIQUE and best_match != MatchType.EXACT_TECHNIQUE:
@@ -147,13 +140,15 @@ class DetectionValidator:
                     if isinstance(ts, int | float)
                     else datetime.fromisoformat(str(ts))
                 )
-                matching_alerts.append(DetectionMatch(
-                    alert_id=d.get("detect_id", ""),
-                    alert_timestamp=alert_time,
-                    rule_name=d.get("detect_mtd", {}).get("description", "Unknown"),
-                    matched_tag="",
-                    match_type=MatchType.TIME_CORRELATION,
-                ))
+                matching_alerts.append(
+                    DetectionMatch(
+                        alert_id=d.get("detect_id", ""),
+                        alert_timestamp=alert_time,
+                        rule_name=d.get("detect_mtd", {}).get("description", "Unknown"),
+                        matched_tag="",
+                        match_type=MatchType.TIME_CORRELATION,
+                    )
+                )
 
         # Assign confidence and status
         confidence, status = self._classify(best_match)
@@ -211,9 +206,7 @@ class DetectionValidator:
             reconciliation_note=note,
         )
 
-    def _classify(
-        self, match_type: MatchType
-    ) -> tuple[DetectionConfidence, CoverageStatus]:
+    def _classify(self, match_type: MatchType) -> tuple[DetectionConfidence, CoverageStatus]:
         """Assign confidence and coverage status based on match type."""
         if match_type == MatchType.EXACT_TECHNIQUE:
             return DetectionConfidence.HIGH, CoverageStatus.DETECTED

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from github import Github  # type: ignore[import-not-found]
+from github import Github
 
 logger = logging.getLogger(__name__)
 
