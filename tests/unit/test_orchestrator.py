@@ -46,6 +46,53 @@ def sample_ttps() -> list[ExtractedTTP]:
     ]
 
 
+class TestStartRunFromTtps:
+    def test_creates_run_without_llm(self, mock_settings: MagicMock, tmp_path: Path) -> None:
+        ttps_file = tmp_path / "ttps.yaml"
+        ttps_file.write_text(
+            yaml.dump(
+                {
+                    "techniques": [
+                        {
+                            "technique_id": "T1059.001",
+                            "technique_name": "PowerShell",
+                            "tactic": "Execution",
+                            "description": "Uses PowerShell",
+                            "confidence": "high",
+                        }
+                    ]
+                }
+            )
+        )
+        with patch("purpleforge.pipeline.orchestrator.TTPExtractor") as extractor:
+            orch = PipelineOrchestrator(mock_settings)
+            run_id = orch.start_run_from_ttps(str(ttps_file))
+            extractor.assert_not_called()
+
+        mock_settings.require_openai.assert_not_called()
+        run = orch.store.load_run(run_id)
+        assert run.status == RunStatus.AWAITING_REVIEW
+        written = orch.store.read_artifact(run_id, "extracted_ttps.yaml")
+        assert written["techniques"][0]["technique_id"] == "T1059.001"
+        assert written["techniques"][0]["confidence"] == "high"
+        assert run.config_snapshot.get("source") == "provided_ttps"
+
+    def test_rejects_file_without_techniques(self, mock_settings: MagicMock, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text(yaml.dump({"not_techniques": []}))
+        orch = PipelineOrchestrator(mock_settings)
+        with pytest.raises(PipelineError, match="techniques"):
+            orch.start_run_from_ttps(str(bad))
+
+    def test_rejects_invalid_technique_id(self, mock_settings: MagicMock, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        entry = {"technique_id": "nope", "technique_name": "x", "tactic": "y", "description": "z"}
+        bad.write_text(yaml.dump({"techniques": [entry]}))
+        orch = PipelineOrchestrator(mock_settings)
+        with pytest.raises(ValueError):
+            orch.start_run_from_ttps(str(bad))
+
+
 class TestOrchestratorIngest:
     @patch("purpleforge.pipeline.orchestrator.TTPExtractor")
     @patch("purpleforge.pipeline.orchestrator.load_pdf")

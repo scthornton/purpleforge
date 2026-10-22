@@ -6,11 +6,10 @@ from typing import TYPE_CHECKING
 
 import click
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 
 from purpleforge import __version__
+from purpleforge.validation import validate_run_id, validate_technique_id
 
 if TYPE_CHECKING:
     from purpleforge.config import PurpleForgeSettings
@@ -38,15 +37,6 @@ def _load_store() -> RunStore:
     return RunStore(_load_settings().run_base_dir)
 
 
-BANNER = r"""
-[bold red] ____                   _      _____
-|  _ \ _   _ _ __ _ __ | | ___|  ___|__  _ __ __ _  ___
-| |_) | | | | '__| '_ \| |/ _ \ |_ / _ \| '__/ _` |/ _ \
-|  __/| |_| | |  | |_) | |  __/  _| (_) | | | (_| |  __/
-|_|    \__,_|_|  | .__/|_|\___|_|  \___/|_|  \__, |\___|
-                 |_|                          |___/[/bold red]"""
-
-
 @click.group()
 @click.version_option(version=__version__, prog_name="purpleforge")
 def cli() -> None:
@@ -54,22 +44,39 @@ def cli() -> None:
 
 
 @cli.command()
-@click.option("--source", required=True, type=click.Path(exists=True), help="Path to threat report PDF")
+@click.option("--source", default=None, type=click.Path(exists=True), help="Path to threat report PDF")
+@click.option(
+    "--ttps",
+    "ttps_path",
+    default=None,
+    type=click.Path(exists=True),
+    help="Path to a YAML technique list (bring your own TTPs, skips LLM extraction)",
+)
 @click.option("--detection-wait", default=120, type=int, help="Seconds to wait for detection propagation")
 @click.option("--caldera-timeout", default=300, type=int, help="Caldera operation timeout in seconds")
 @click.option("--skip-advise", is_flag=True, help="Skip advisory rule generation")
-def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: bool) -> None:
-    """Start a new pipeline run. Ingests PDF and extracts TTPs."""
+def run(
+    source: str | None,
+    ttps_path: str | None,
+    detection_wait: int,
+    caldera_timeout: int,
+    skip_advise: bool,
+) -> None:
+    """Start a new pipeline run from a threat report PDF or a technique list."""
     console.print(f"[bold]PurpleForge v{__version__}[/bold]")
+
+    if bool(source) == bool(ttps_path):
+        raise click.UsageError("Provide exactly one of --source or --ttps.")
 
     from purpleforge.config import ConfigError
 
     settings = _load_settings()
-    try:
-        settings.require_openai()
-    except ConfigError as e:
-        console.print(f"[red]{e}[/red]")
-        raise SystemExit(2)
+    if source:
+        try:
+            settings.require_openai()
+        except ConfigError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(2)
 
     # Apply CLI overrides
     settings.detection_wait_seconds = detection_wait
@@ -80,8 +87,12 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
     orchestrator = PipelineOrchestrator(settings, skip_advise=skip_advise)
 
     try:
-        with console.status("[bold green]Ingesting and extracting TTPs..."):
-            run_id = orchestrator.start_run(source)
+        if source:
+            with console.status("[bold green]Ingesting and extracting TTPs..."):
+                run_id = orchestrator.start_run(source)
+        else:
+            assert ttps_path is not None
+            run_id = orchestrator.start_run_from_ttps(ttps_path)
     except Exception as e:
         console.print(f"[red]Pipeline error: {e}[/red]")
         raise SystemExit(1)
@@ -122,8 +133,16 @@ def run(source: str, detection_wait: int, caldera_timeout: int, skip_advise: boo
 @cli.command()
 @click.option("--run-id", required=True, help="Run ID to confirm")
 @click.option("--ttps-file", default=None, type=click.Path(exists=True), help="Override TTPs file path")
-def confirm(run_id: str, ttps_file: str | None) -> None:
+@click.option(
+    "--min-coverage",
+    default=None,
+    type=float,
+    help="Fail with a non-zero exit if lenient coverage falls below this percentage",
+)
+def confirm(run_id: str, ttps_file: str | None, min_coverage: float | None) -> None:
     """Confirm extracted TTPs and proceed with emulation, validation, and reporting."""
+    validate_run_id(run_id)
+
     from purpleforge.config import ConfigError
 
     settings = _load_settings()
@@ -142,27 +161,6 @@ def confirm(run_id: str, ttps_file: str | None) -> None:
     try:
         console.print(f"Confirming run [bold]{run_id}[/bold]")
         orchestrator.confirm_run(run_id, ttps_file)
-
-        # Show results summary
-        try:
-            report_data = orchestrator.store.read_artifact(run_id, "coverage_report.json")
-            pct = report_data.get("coverage_pct", 0)
-            d = report_data.get("detected_count", 0)
-            p = report_data.get("partial_count", 0)
-            m = report_data.get("missed_count", 0)
-            s = report_data.get("skipped_count", 0)
-            console.print()
-            console.print(f"[bold green]Run {run_id} complete.[/bold green]")
-            console.print(f"  Coverage: [bold]{pct}%[/bold]")
-            console.print(
-                f"  Detected: [green]{d}[/green] | Partial: [yellow]{p}[/yellow] "
-                f"| Missed: [red]{m}[/red] | Skipped: {s}"
-            )
-            run_dir = f"{settings.run_base_dir}/{run_id}"
-            console.print(f"  Reports at: [bold]{run_dir}/[/bold]")
-        except Exception:
-            console.print(f"[green]Run {run_id} complete.[/green]")
-
     except PipelineError as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1)
@@ -170,18 +168,55 @@ def confirm(run_id: str, ttps_file: str | None) -> None:
         console.print(f"[red]Pipeline error: {e}[/red]")
         raise SystemExit(1)
 
+    # Show results summary and apply the optional coverage gate.
+    pct: float | None = None
+    try:
+        report_data = orchestrator.store.read_artifact(run_id, "coverage_report.json")
+        pct = report_data.get("coverage_pct", 0)
+        d = report_data.get("detected_count", 0)
+        p = report_data.get("partial_count", 0)
+        m = report_data.get("missed_count", 0)
+        s = report_data.get("skipped_count", 0)
+        console.print()
+        console.print(f"[bold green]Run {run_id} complete.[/bold green]")
+        console.print(f"  Coverage: [bold]{pct}%[/bold]")
+        console.print(
+            f"  Detected: [green]{d}[/green] | Partial: [yellow]{p}[/yellow] | Missed: [red]{m}[/red] | Skipped: {s}"
+        )
+        run_dir = f"{settings.run_base_dir}/{run_id}"
+        console.print(f"  Reports at: [bold]{run_dir}/[/bold]")
+    except Exception:
+        console.print(f"[green]Run {run_id} complete.[/green]")
+
+    if min_coverage is not None and pct is not None and pct < min_coverage:
+        console.print(f"[red]Coverage {pct}% is below the required {min_coverage}%.[/red]")
+        raise SystemExit(3)
+
 
 @cli.command()
 @click.option("--run-id", required=True, help="Run ID to check")
-def status(run_id: str) -> None:
+@click.option("--json", "as_json", is_flag=True, help="Emit the run state as JSON")
+def status(run_id: str, as_json: bool) -> None:
     """Show current pipeline state for a run."""
+    validate_run_id(run_id)
     store = _load_store()
 
     try:
         pipeline_run = store.load_run(run_id)
     except FileNotFoundError:
-        console.print(f"[red]Run {run_id} not found.[/red]")
+        if as_json:
+            import json as json_mod
+
+            click.echo(json_mod.dumps({"error": "not_found", "run_id": run_id}))
+        else:
+            console.print(f"[red]Run {run_id} not found.[/red]")
         raise SystemExit(1)
+
+    if as_json:
+        import json as json_mod
+
+        click.echo(json_mod.dumps(pipeline_run.model_dump(mode="json")))
+        return
 
     console.print(f"[bold]Run {pipeline_run.run_id}[/bold]")
     console.print(f"  Status: {pipeline_run.status.value}")
@@ -212,6 +247,8 @@ def status(run_id: str) -> None:
 @click.option("--format", "fmt", type=click.Choice(["json", "html", "navigator", "all"]), default="all")
 def report(run_id: str, fmt: str) -> None:
     """Regenerate reports from existing evidence data."""
+    validate_run_id(run_id)
+
     import json as json_mod
     from pathlib import Path
 
@@ -283,6 +320,9 @@ def report(run_id: str, fmt: str) -> None:
 @click.option("--target", type=click.Choice(["github", "stdout"]), default="stdout")
 def deploy_draft(run_id: str, technique: str, target: str) -> None:
     """Deploy an advisory detection rule draft."""
+    validate_run_id(run_id)
+    validate_technique_id(technique)
+
     from purpleforge.config import ConfigError
 
     settings = _load_settings()
@@ -341,11 +381,28 @@ def deploy_draft(run_id: str, technique: str, target: str) -> None:
 
 
 @cli.command("list")
-def list_runs() -> None:
+@click.option("--json", "as_json", is_flag=True, help="Emit the run list as JSON")
+def list_runs(as_json: bool) -> None:
     """List all pipeline runs."""
     store = _load_store()
 
     runs = store.list_runs()
+
+    if as_json:
+        import json as json_mod
+
+        summaries = [
+            {
+                "run_id": r.run_id,
+                "source_path": r.source_path,
+                "status": r.status.value,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in runs
+        ]
+        click.echo(json_mod.dumps(summaries))
+        return
+
     if not runs:
         console.print("[dim]No runs found.[/dim]")
         return
@@ -496,137 +553,3 @@ def install_atomic() -> None:
         console.print(f"[red]Install failed: {e}[/red]")
         raise SystemExit(1)
     console.print("[green]Atomic Red Team is installed.[/green]")
-
-
-@cli.command()
-def demo() -> None:
-    """Show a sample pipeline run with realistic output (for screenshots/demos)."""
-    console.print(BANNER)
-    console.print(f"  [dim]v{__version__}[/dim]  [bold]Evidence-Driven Purple Team Pipeline[/bold]")
-    console.print("  [dim]SANS SEC598 | Caldera + Atomic Red Team + LimaCharlie[/dim]")
-    console.print()
-
-    run_id = "a3f7c2e1"
-    console.print(
-        Panel(
-            f"[bold]Run ID:[/bold] {run_id}\n"
-            f"[bold]Source:[/bold] APT29_CozyBear_Campaign_Report.pdf\n"
-            f"[bold]Model:[/bold]  gpt-4o  [dim]|[/dim]  [bold]Detection wait:[/bold] 120s",
-            title="[bold cyan]Pipeline Run[/bold cyan]",
-            border_style="cyan",
-        )
-    )
-    console.print()
-
-    # Phase 1: Ingest
-    console.print("[bold white]Phase 1 — INGEST[/bold white]")
-    console.print("  [green]\u2714[/green] Loaded 24 pages, 47 chunks from PDF")
-    console.print("  [green]\u2714[/green] Embedded into ChromaDB collection")
-    console.print("  [green]\u2714[/green] RAG retrieval: top 10 relevant chunks")
-    console.print()
-
-    # Extracted TTPs
-    techniques = [
-        ("T1059.001", "PowerShell", "Execution", "high"),
-        ("T1053.005", "Scheduled Task/Job", "Persistence", "high"),
-        ("T1003.001", "LSASS Memory Dump", "Credential Access", "high"),
-        ("T1071.001", "Web Protocols (C2)", "Command and Control", "medium"),
-        ("T1027", "Obfuscated Files", "Defense Evasion", "medium"),
-        ("T1082", "System Information Discovery", "Discovery", "medium"),
-        ("T1547.001", "Registry Run Keys", "Persistence", "high"),
-        ("T1105", "Ingress Tool Transfer", "Command and Control", "medium"),
-    ]
-
-    table = Table(title=f"[bold]Extracted {len(techniques)} Techniques[/bold]", border_style="dim")
-    table.add_column("Technique", style="cyan", no_wrap=True)
-    table.add_column("Name", style="white")
-    table.add_column("Tactic", style="dim")
-    table.add_column("Confidence", justify="center")
-    for tid, name, tactic, conf in techniques:
-        style = {"high": "green", "medium": "yellow", "low": "red"}[conf]
-        table.add_row(tid, name, tactic, f"[{style}]{conf}[/{style}]")
-    console.print(table)
-    console.print()
-
-    # Phase 2: Resolve
-    console.print("[bold white]Phase 2 — RESOLVE[/bold white]")
-    console.print("  [green]\u2714[/green] Caldera: 5 abilities matched")
-    console.print("  [green]\u2714[/green] Atomic Red Team: 2 fallback tests")
-    console.print("  [yellow]\u26a0[/yellow] Skipped: 1 (T1105 — no available test)")
-    console.print()
-
-    # Phase 3: Execute
-    console.print("[bold white]Phase 3 — EXECUTE[/bold white]")
-    results = [
-        ("T1059.001", "caldera", "success"),
-        ("T1053.005", "caldera", "success"),
-        ("T1003.001", "caldera", "success"),
-        ("T1071.001", "caldera", "success"),
-        ("T1027", "caldera", "failed"),
-        ("T1082", "atomic", "success"),
-        ("T1547.001", "atomic", "success"),
-    ]
-    for tid, method, status in results:
-        icon = "[green]\u2714[/green]" if status == "success" else "[red]\u2718[/red]"
-        method_style = "[cyan]caldera[/cyan]" if method == "caldera" else "[magenta]atomic[/magenta]"
-        status_style = f"[green]{status}[/green]" if status == "success" else f"[red]{status}[/red]"
-        console.print(f"  {icon} {tid}  {method_style}  {status_style}")
-    console.print()
-
-    # Phase 4: Validate
-    console.print("[bold white]Phase 4 — VALIDATE[/bold white]")
-    console.print("  [dim]Waiting 120s for detection propagation...[/dim]")
-    console.print("  [green]\u2714[/green] Fetched 23 detections from LimaCharlie")
-    console.print()
-
-    # Coverage results
-    coverage_data = [
-        ("T1059.001", "PowerShell", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
-        ("T1053.005", "Scheduled Task/Job", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
-        ("T1003.001", "LSASS Memory Dump", "[bold green]DETECTED[/bold green]", "high", "exact_technique"),
-        ("T1071.001", "Web Protocols (C2)", "[bold yellow]PARTIAL[/bold yellow]", "medium", "parent_technique"),
-        ("T1027", "Obfuscated Files", "[bold red]MISSED[/bold red]", "none", "emulation failed"),
-        ("T1082", "System Info Discovery", "[bold yellow]PARTIAL[/bold yellow]", "low", "time_correlation"),
-        ("T1547.001", "Registry Run Keys", "[bold red]MISSED[/bold red]", "none", "none"),
-        ("T1105", "Ingress Tool Transfer", "[dim]SKIPPED[/dim]", "—", "no test available"),
-    ]
-
-    cov_table = Table(title="[bold]Coverage Results[/bold]", border_style="dim")
-    cov_table.add_column("Technique", style="cyan", no_wrap=True)
-    cov_table.add_column("Name", style="white")
-    cov_table.add_column("Status", justify="center")
-    cov_table.add_column("Confidence", justify="center")
-    cov_table.add_column("Match", style="dim")
-    for tid, name, status, conf, match in coverage_data:
-        conf_style = {"high": "green", "medium": "yellow", "low": "red", "none": "dim", "—": "dim"}[conf]
-        cov_table.add_row(tid, name, status, f"[{conf_style}]{conf}[/{conf_style}]", match)
-    console.print(cov_table)
-    console.print()
-
-    # Summary
-    console.print("[bold white]Phase 5 — REPORT & ADVISE[/bold white]")
-    console.print("  [green]\u2714[/green] coverage_report.json")
-    console.print("  [green]\u2714[/green] coverage_report.html")
-    console.print("  [green]\u2714[/green] navigator_layer.json  [dim](ATT&CK Navigator)[/dim]")
-    console.print("  [green]\u2714[/green] 2 Sigma rule drafts generated for missed techniques")
-    console.print()
-
-    summary = Text()
-    summary.append("Coverage: ", style="bold")
-    summary.append("71.4%", style="bold green")
-    summary.append("  |  Strict: ", style="bold")
-    summary.append("42.9%", style="bold yellow")
-    console.print(
-        Panel(
-            f"{summary}\n\n"
-            f"  [green]\u2588\u2588[/green] Detected: 3    "
-            f"[yellow]\u2588\u2588[/yellow] Partial:  2    "
-            f"[red]\u2588\u2588[/red] Missed:   2    "
-            f"[dim]\u2588\u2588[/dim] Skipped:  1",
-            title="[bold]Summary[/bold]",
-            border_style="green",
-        )
-    )
-    console.print()
-    console.print(f"  [dim]Reports at: data/runs/{run_id}/[/dim]")
-    console.print(f"  [dim]Deploy drafts: purpleforge deploy-draft --run-id {run_id} --technique T1027[/dim]")
