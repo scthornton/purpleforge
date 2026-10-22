@@ -1,4 +1,4 @@
-"""Pipeline orchestrator — state machine coordinating all pipeline steps."""
+"""Pipeline orchestrator: state machine coordinating all pipeline steps."""
 
 from __future__ import annotations
 
@@ -45,6 +45,7 @@ class PipelineOrchestrator:
 
         Returns the run_id.
         """
+        self.settings.require_openai()
         run = self.store.create_run(
             source_path=source_path,
             config_snapshot={
@@ -70,6 +71,9 @@ class PipelineOrchestrator:
         Loads TTPs from file (operator may have edited), then runs:
         RESOLVE → EXECUTE → WAIT → VALIDATE → REPORT → ADVISE
         """
+        self.settings.require_caldera()
+        self.settings.require_limacharlie()
+        self.settings.require_winrm()
         run = self.store.load_run(run_id)
 
         if run.status != RunStatus.AWAITING_REVIEW:
@@ -130,7 +134,7 @@ class PipelineOrchestrator:
             self.store.fail_step(run_id, "REPORT", str(e))
             raise
 
-        # ADVISE (optional — check both instance flag and persisted config)
+        # ADVISE (optional, check both instance flag and persisted config)
         skip = self.skip_advise or run.config_snapshot.get("skip_advise", False)
         if not skip:
             try:
@@ -153,7 +157,7 @@ class PipelineOrchestrator:
 
         # LLM extraction over the whole report (map-reduce, no vector store)
         extractor = TTPExtractor(
-            api_key=self.settings.openai_api_key.get_secret_value(),
+            api_key=self.settings.openai_key(),
             model=self.settings.openai_model,
             base_url=self.settings.openai_base_url,
         )
@@ -205,12 +209,12 @@ class PipelineOrchestrator:
 
         caldera = CalderaClient(
             base_url=self.settings.caldera_url,
-            api_key=self.settings.caldera_api_key.get_secret_value(),
+            api_key=self.settings.caldera_key(),
         )
         atomic = AtomicRunner(
-            host=self.settings.winrm_host,
+            host=self.settings.winrm_host_value(),
             user=self.settings.winrm_user,
-            password=self.settings.winrm_password.get_secret_value(),
+            password=self.settings.winrm_pass(),
             port=self.settings.winrm_port,
             transport=self.settings.winrm_transport,
             use_https=self.settings.winrm_use_https,
@@ -253,7 +257,7 @@ class PipelineOrchestrator:
         if caldera_techs:
             caldera = CalderaClient(
                 base_url=self.settings.caldera_url,
-                api_key=self.settings.caldera_api_key.get_secret_value(),
+                api_key=self.settings.caldera_key(),
             )
             executor = CalderaExecutor(
                 client=caldera,
@@ -267,9 +271,9 @@ class PipelineOrchestrator:
         # Execute Atomic tests sequentially
         if atomic_techs:
             runner = AtomicRunner(
-                host=self.settings.winrm_host,
+                host=self.settings.winrm_host_value(),
                 user=self.settings.winrm_user,
-                password=self.settings.winrm_password.get_secret_value(),
+                password=self.settings.winrm_pass(),
                 port=self.settings.winrm_port,
                 transport=self.settings.winrm_transport,
                 use_https=self.settings.winrm_use_https,
@@ -322,8 +326,8 @@ class PipelineOrchestrator:
 
         # Query LimaCharlie
         lc = LimaCharlieClient(
-            api_key=self.settings.lc_api_key.get_secret_value(),
-            org_id=self.settings.lc_org_id,
+            api_key=self.settings.lc_key(),
+            org_id=self.settings.lc_org(),
         )
         validator = DetectionValidator(
             client=lc,
@@ -420,7 +424,7 @@ class PipelineOrchestrator:
             logger.warning("confirmed_ttps.yaml not found; advisory prompts will lack report context")
 
         generator = AdvisoryGenerator(
-            api_key=self.settings.openai_api_key.get_secret_value(),
+            api_key=self.settings.openai_key(),
             model=self.settings.openai_model,
             base_url=self.settings.openai_base_url,
         )
