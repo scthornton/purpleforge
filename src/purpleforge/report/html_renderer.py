@@ -4,26 +4,28 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment, FileSystemLoader, PackageLoader
 
+from purpleforge import __version__
 from purpleforge.models.evidence import CoverageResult
 
-TEMPLATE_DIR = Path(__file__).parent.parent.parent.parent / "templates"
+TEMPLATE_NAME = "report.html.j2"
 
 
 class HtmlRenderer:
-    """Render coverage results as a self-contained HTML report."""
+    """Render coverage results as a self-contained HTML report.
+
+    The template ships inside the package, so rendering works from an installed
+    wheel. Pass template_dir to use a custom template directory instead.
+    """
 
     def __init__(self, template_dir: str | Path | None = None) -> None:
-        tpl_dir = Path(template_dir) if template_dir else TEMPLATE_DIR
-        self._env = Environment(
-            loader=FileSystemLoader(str(tpl_dir)),
-            autoescape=True,
-        )
+        loader = FileSystemLoader(str(template_dir)) if template_dir else PackageLoader("purpleforge", "templates")
+        self._env = Environment(loader=loader, autoescape=True)
 
     def render(self, result: CoverageResult) -> str:
         """Render the coverage report HTML."""
-        template = self._env.get_template("report.html.j2")
+        template = self._env.get_template(TEMPLATE_NAME)
         return template.render(
             run_id=result.run_id,
             generated_at=result.generated_at.strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -34,4 +36,5 @@ class HtmlRenderer:
             skipped_count=result.skipped_count,
             evidence_chains=result.evidence_chains,
             skipped_techniques=result.skipped_techniques,
+            version=__version__,
         )

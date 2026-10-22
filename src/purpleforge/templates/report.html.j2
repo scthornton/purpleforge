@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PurpleForge Coverage Report — Run {{ run_id }}</title>
+<title>PurpleForge Coverage Report: Run {{ run_id }}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 2rem; }
@@ -88,23 +88,23 @@
     {% for alert in chain.matching_alerts %}
       {{ alert.alert_id }} ({{ alert.rule_name }}){% if not loop.last %}<br>{% endif %}
     {% else %}
-      —
+      none
     {% endfor %}
   </td>
-  <td class="evidence">{{ chain.reconciliation_note or '—' }}</td>
+  <td class="evidence">{{ chain.reconciliation_note or '' }}</td>
 </tr>
 {% endfor %}
 {% for tid in skipped_techniques %}
 <tr>
   <td>{{ tid }}</td>
-  <td colspan="6" class="evidence">Not emulated — no Caldera ability or Atomic test available</td>
+  <td colspan="6" class="evidence">Not emulated: no Caldera ability or Atomic test available</td>
 </tr>
 {% endfor %}
 </tbody>
 </table>
 
 <footer>
-  PurpleForge v0.1.0 | Evidence-driven purple team pipeline | perfecXion.ai
+  PurpleForge v{{ version }} | Evidence-driven purple team pipeline | perfecXion.ai
 </footer>
 </body>
 </html>

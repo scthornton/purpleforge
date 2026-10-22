@@ -48,9 +48,7 @@ src/purpleforge/
   report/                   Coverage analyzer, ATT&CK Navigator heatmap, HTML report, advisory generator
   clients/                  REST API clients (Caldera, LimaCharlie, Atomic WinRM, GitHub)
   pipeline/                 State machine orchestrator, file-based run store
-
-templates/
-  report.html.j2            Self-contained HTML coverage report (dark theme, inline CSS)
+  templates/                Self-contained HTML coverage report template (dark theme, inline CSS)
 
 tests/
   unit/                     116 unit tests with mocked external services

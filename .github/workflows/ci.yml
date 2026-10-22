@@ -55,3 +55,4 @@ jobs:
           uv venv smoke
           uv pip install --python smoke/bin/python dist/*.whl
           smoke/bin/purpleforge --help
+          smoke/bin/python -c "from importlib.resources import files; assert files('purpleforge').joinpath('templates/report.html.j2').is_file()"
