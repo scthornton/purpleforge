@@ -18,7 +18,6 @@ from purpleforge.execute.atomic_executor import AtomicExecutor
 from purpleforge.execute.caldera_executor import CalderaExecutor
 from purpleforge.ingest.pdf_loader import chunk_documents, load_pdf
 from purpleforge.ingest.ttp_extractor import TTPExtractor
-from purpleforge.ingest.vector_store import VectorStore
 from purpleforge.models.emulation import EmulationMethod, EmulationRecord
 from purpleforge.models.extraction import NormalizedTechnique
 from purpleforge.models.pipeline import RunStatus
@@ -143,37 +142,26 @@ class PipelineOrchestrator:
         self.store.update_status(run_id, RunStatus.COMPLETE)
 
     def _step_ingest(self, run_id: str, source_path: str) -> None:
-        """INGEST step: load PDF → chunk → embed → extract TTPs."""
+        """INGEST step: load the PDF, chunk it, and extract TTPs for operator review."""
         self.store.update_status(run_id, RunStatus.INGESTING)
         self.store.start_step(run_id, "INGEST")
 
-        # Load and chunk PDF
-        documents = load_pdf(source_path)
-        chunks = chunk_documents(documents)
-        logger.info("Loaded %d pages, %d chunks from %s", len(documents), len(chunks), source_path)
+        # Load and chunk the PDF
+        pages = load_pdf(source_path)
+        chunks = chunk_documents(pages)
+        logger.info("Loaded %d pages, %d chunks from %s", len(pages), len(chunks), source_path)
 
-        # Embed into ChromaDB
-        vector_store = VectorStore(
-            run_id=run_id,
-            api_key=self.settings.openai_api_key.get_secret_value(),
-            persist_dir=self.settings.chroma_persist_dir,
-        )
-        vector_store.add_documents(chunks)
-
-        # RAG retrieval for extraction context
-        from purpleforge.ingest.ttp_extractor import RAG_QUERY
-
-        relevant_chunks = vector_store.similarity_search(RAG_QUERY, k=10)
-
-        # LLM extraction
+        # LLM extraction over the whole report (map-reduce, no vector store)
         extractor = TTPExtractor(
             api_key=self.settings.openai_api_key.get_secret_value(),
             model=self.settings.openai_model,
+            base_url=self.settings.openai_base_url,
         )
-        ttps = extractor.extract(relevant_chunks)
+        ttps = extractor.extract(chunks)
         logger.info("Extracted %d techniques", len(ttps))
 
-        # Write extracted TTPs as operator-reviewable YAML
+        # Write extracted TTPs as operator-reviewable YAML, with the signals a
+        # reviewer needs: the model's confidence and a source excerpt.
         ttps_data = {
             "techniques": [
                 {
@@ -181,6 +169,9 @@ class PipelineOrchestrator:
                     "technique_name": t.technique_name,
                     "tactic": t.tactic,
                     "description": t.description,
+                    "confidence": t.confidence.value,
+                    "source_chunk": t.source_chunk,
+                    "page": t.page,
                     "operator_notes": "",
                 }
                 for t in ttps
@@ -431,6 +422,7 @@ class PipelineOrchestrator:
         generator = AdvisoryGenerator(
             api_key=self.settings.openai_api_key.get_secret_value(),
             model=self.settings.openai_model,
+            base_url=self.settings.openai_base_url,
         )
 
         missed_input = [

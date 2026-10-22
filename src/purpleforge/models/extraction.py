@@ -22,6 +22,7 @@ class ExtractedTTP(BaseModel):
     description: str
     confidence: Confidence
     source_chunk: str = ""
+    page: int | None = None
 
 
 class TTPExtractionResult(BaseModel):

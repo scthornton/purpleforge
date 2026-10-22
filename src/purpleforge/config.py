@@ -14,6 +14,7 @@ class PurpleForgeSettings(BaseSettings):
     # LLM
     openai_api_key: SecretStr
     openai_model: str = "gpt-4o-mini"
+    openai_base_url: str | None = None
 
     # Caldera
     caldera_url: str = "http://localhost:8888"
@@ -39,9 +40,6 @@ class PurpleForgeSettings(BaseSettings):
     # GitHub (optional, only needed for deploy-draft --target github)
     github_token: SecretStr | None = None
     detection_repo: str | None = None
-
-    # ChromaDB
-    chroma_persist_dir: str = "./data/chroma"
 
     # Pipeline
     detection_wait_seconds: int = 120

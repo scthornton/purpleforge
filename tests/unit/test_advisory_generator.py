@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -59,23 +57,33 @@ def _draft(rule_yaml: str = VALID_RULE, confidence: str = "high") -> SigmaRuleDr
 
 @pytest.fixture
 def generator() -> AdvisoryGenerator:
-    with patch("purpleforge.report.advisory_generator.ChatOpenAI"):
+    with patch("purpleforge.report.advisory_generator.OpenAI"):
         return AdvisoryGenerator(api_key="sk-test")
 
 
+def _completion(parsed: object) -> MagicMock:
+    message = MagicMock()
+    message.parsed = parsed
+    choice = MagicMock()
+    choice.message = message
+    completion = MagicMock()
+    completion.choices = [choice]
+    return completion
+
+
 def _wire(gen: AdvisoryGenerator, outputs: list[SigmaRuleDraft | Exception], prompts: list[str]) -> None:
-    """Replace the structured-output model with a callable that records prompts."""
+    """Make the OpenAI parse() call return the queued drafts and record the user prompt."""
     queue = list(outputs)
 
-    def fake_model(prompt_value: Any) -> SigmaRuleDraft:
-        prompts.append(prompt_value.to_string())
+    def fake_parse(**kwargs: object) -> MagicMock:
+        messages = kwargs["messages"]
+        prompts.append(" ".join(str(m["content"]) for m in messages))  # type: ignore[index]
         item = queue.pop(0)
         if isinstance(item, Exception):
             raise item
-        return item
+        return _completion(item)
 
-    wired: Callable[[Any], SigmaRuleDraft] = fake_model
-    gen._llm.with_structured_output.return_value = wired  # type: ignore[attr-defined]
+    gen._client.beta.chat.completions.parse.side_effect = fake_parse  # type: ignore[attr-defined]
 
 
 class TestValidateSigmaYaml:

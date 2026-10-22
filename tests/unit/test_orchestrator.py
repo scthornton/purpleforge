@@ -18,9 +18,9 @@ def mock_settings(tmp_path: Path) -> MagicMock:
     """Create mock settings with real temp directories."""
     settings = MagicMock()
     settings.run_base_dir = str(tmp_path / "runs")
-    settings.chroma_persist_dir = str(tmp_path / "chroma")
     settings.openai_api_key.get_secret_value.return_value = "sk-test"
     settings.openai_model = "gpt-4o-mini"
+    settings.openai_base_url = None
     settings.detection_wait_seconds = 120
     settings.caldera_operation_timeout = 300
     return settings
@@ -48,25 +48,20 @@ def sample_ttps() -> list[ExtractedTTP]:
 
 class TestOrchestratorIngest:
     @patch("purpleforge.pipeline.orchestrator.TTPExtractor")
-    @patch("purpleforge.pipeline.orchestrator.VectorStore")
     @patch("purpleforge.pipeline.orchestrator.load_pdf")
     @patch("purpleforge.pipeline.orchestrator.chunk_documents")
     def test_start_run_creates_run_and_extracts(
         self,
         mock_chunk: MagicMock,
         mock_load: MagicMock,
-        mock_vs_cls: MagicMock,
         mock_ext_cls: MagicMock,
         mock_settings: MagicMock,
         sample_ttps: list[ExtractedTTP],
         tmp_path: Path,
     ) -> None:
         # Setup mocks
-        mock_load.return_value = [MagicMock(page_content="page 1")]
-        mock_chunk.return_value = [MagicMock(page_content="chunk 1")]
-        mock_vs = MagicMock()
-        mock_vs.similarity_search.return_value = [MagicMock(page_content="relevant")]
-        mock_vs_cls.return_value = mock_vs
+        mock_load.return_value = [MagicMock(text="page 1")]
+        mock_chunk.return_value = [MagicMock(text="chunk 1")]
         mock_ext = MagicMock()
         mock_ext.extract.return_value = sample_ttps
         mock_ext_cls.return_value = mock_ext
@@ -78,22 +73,22 @@ class TestOrchestratorIngest:
         run = orchestrator.store.load_run(run_id)
         assert run.status == RunStatus.AWAITING_REVIEW
 
-        # Verify extracted TTPs were written
+        # Verify extracted TTPs were written with the review signals
         ttps_path = Path(mock_settings.run_base_dir) / run_id / "extracted_ttps.yaml"
         assert ttps_path.exists()
         data = yaml.safe_load(ttps_path.read_text())
         assert len(data["techniques"]) == 2
         assert data["techniques"][0]["technique_id"] == "T1059.001"
+        assert data["techniques"][0]["confidence"] in {"high", "medium", "low"}
+        assert "source_chunk" in data["techniques"][0]
 
     @patch("purpleforge.pipeline.orchestrator.TTPExtractor")
-    @patch("purpleforge.pipeline.orchestrator.VectorStore")
     @patch("purpleforge.pipeline.orchestrator.load_pdf")
     @patch("purpleforge.pipeline.orchestrator.chunk_documents")
     def test_start_run_pdf_failure_marks_failed(
         self,
         mock_chunk: MagicMock,
         mock_load: MagicMock,
-        mock_vs_cls: MagicMock,
         mock_ext_cls: MagicMock,
         mock_settings: MagicMock,
     ) -> None:
