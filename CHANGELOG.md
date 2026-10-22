@@ -15,11 +15,25 @@ All notable changes to PurpleForge are recorded here. The format follows
 - An `inconclusive` coverage status for emulations that did not run, reported and counted separately from detection gaps.
 - A raw detections snapshot (`detections_snapshot.json`) saved per run so coverage claims can be re-audited offline.
 - Support for a custom OpenAI base URL (`OPENAI_BASE_URL`) so extraction and advisory calls can go through an enterprise gateway.
+- A `doctor` command that probes each integration (OpenAI, Caldera, LimaCharlie, WinRM) and reports which are configured and reachable.
+- A `resume` command that continues a failed or interrupted run from the last completed step, protected by a per-run lock file.
+- `run --ttps` to start a run from a provided technique list without the LLM extraction step.
+- `--json` output for `list` and `status`, and a `--min-coverage` gate on `confirm` that exits non-zero when coverage is below the threshold.
+- `-v/--verbose` and `-q/--quiet` logging, a per-run `run.log`, audit fields (tool version, operator, host, schema version) on the run, a tamper-evident SHA-256 `manifest.json`, and a persisted `caldera_operation.json`.
+- GitHub Enterprise Server support (`GITHUB_BASE_URL`) in the deploy-draft client, with the repository default branch and safe re-runs.
+- Architecture, threat model, and operations pages under `docs/`, and a committed `uv.lock`.
+
+### Changed
+
+- Credentials are validated per step with a clear message naming the missing variable, instead of every command requiring every secret. Read-only commands no longer silently fall back to `./data/runs`.
+- A Caldera ability is chosen only when its executor matches a connected agent's platform.
+- CI runs on a pinned ruff and mypy, checks the lockfile is current, audits dependencies with pip-audit, and enforces an 80% coverage floor.
 
 ### Removed
 
 - LangChain and ChromaDB, replaced by a direct OpenAI SDK call with structured output. Runtime dependencies drop from about 136 packages to 40, and the five chromadb advisories no longer apply. The unused `mitreattack-python` dependency is gone.
 - The on-disk vector store. Extraction now reads the whole report in batches (map-reduce) instead of a similarity search over a subset.
+- The `demo` command and its hard-coded sample output.
 
 ### Fixed
 
