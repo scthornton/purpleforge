@@ -62,9 +62,7 @@ class RunStore:
         self._write_state(run)
         return run
 
-    def complete_step(
-        self, run_id: str, step_name: str, artifact_path: str | None = None
-    ) -> PipelineRun:
+    def complete_step(self, run_id: str, step_name: str, artifact_path: str | None = None) -> PipelineRun:
         """Record that a pipeline step completed successfully."""
         run = self.load_run(run_id)
         for step in run.steps:

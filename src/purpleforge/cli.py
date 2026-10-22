@@ -108,7 +108,6 @@ def confirm(run_id: str, ttps_file: str | None) -> None:
 
         # Show results summary
         try:
-
             report_data = orchestrator.store.read_artifact(run_id, "coverage_report.json")
             pct = report_data.get("coverage_pct", 0)
             d = report_data.get("detected_count", 0)
@@ -211,8 +210,10 @@ def report(run_id: str, fmt: str) -> None:
     try:
         chains_data = store.read_artifact(run_id, "evidence_chains.json")
     except FileNotFoundError:
-        console.print(f"[red]No evidence_chains.json found for run {run_id}. "
-                       "Run must complete validation before reports can be generated.[/red]")
+        console.print(
+            f"[red]No evidence_chains.json found for run {run_id}. "
+            "Run must complete validation before reports can be generated.[/red]"
+        )
         raise SystemExit(1)
 
     chains = [EvidenceChain.model_validate(c) for c in chains_data]
@@ -221,10 +222,7 @@ def report(run_id: str, fmt: str) -> None:
     skipped: list[str] = []
     try:
         plan_data = store.read_artifact(run_id, "execution_plan.yaml")
-        skipped = [
-            t["technique_id"] for t in plan_data.get("techniques", [])
-            if t.get("method") == "skip"
-        ]
+        skipped = [t["technique_id"] for t in plan_data.get("techniques", []) if t.get("method") == "skip"]
     except FileNotFoundError:
         pass
 
@@ -236,7 +234,8 @@ def report(run_id: str, fmt: str) -> None:
 
     if fmt in ("json", "all"):
         store.write_artifact(
-            run_id, "coverage_report.json",
+            run_id,
+            "coverage_report.json",
             json_mod.loads(result.model_dump_json()),
         )
         console.print(f"  [green]Wrote[/green] coverage_report.json at {run_dir}/")
@@ -473,15 +472,17 @@ def demo() -> None:
     summary.append("71.4%", style="bold green")
     summary.append("  |  Strict: ", style="bold")
     summary.append("42.9%", style="bold yellow")
-    console.print(Panel(
-        f"{summary}\n\n"
-        f"  [green]\u2588\u2588[/green] Detected: 3    "
-        f"[yellow]\u2588\u2588[/yellow] Partial:  2    "
-        f"[red]\u2588\u2588[/red] Missed:   2    "
-        f"[dim]\u2588\u2588[/dim] Skipped:  1",
-        title="[bold]Summary[/bold]",
-        border_style="green",
-    ))
+    console.print(
+        Panel(
+            f"{summary}\n\n"
+            f"  [green]\u2588\u2588[/green] Detected: 3    "
+            f"[yellow]\u2588\u2588[/yellow] Partial:  2    "
+            f"[red]\u2588\u2588[/red] Missed:   2    "
+            f"[dim]\u2588\u2588[/dim] Skipped:  1",
+            title="[bold]Summary[/bold]",
+            border_style="green",
+        )
+    )
     console.print()
     console.print(f"  [dim]Reports at: data/runs/{run_id}/[/dim]")
     console.print(f"  [dim]Deploy drafts: purpleforge deploy-draft --run-id {run_id} --technique T1027[/dim]")

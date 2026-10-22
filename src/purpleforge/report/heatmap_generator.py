@@ -9,9 +9,9 @@ from purpleforge.models.evidence import CoverageResult, CoverageStatus
 
 # ATT&CK Navigator color scheme
 COLORS = {
-    CoverageStatus.DETECTED: "#a1d99b",   # green
-    CoverageStatus.PARTIAL: "#fee08b",     # yellow
-    CoverageStatus.MISSED: "#fc8d59",      # red
+    CoverageStatus.DETECTED: "#a1d99b",  # green
+    CoverageStatus.PARTIAL: "#fee08b",  # yellow
+    CoverageStatus.MISSED: "#fc8d59",  # red
 }
 SKIPPED_COLOR = "#ffffff"  # white — not tested
 
@@ -28,25 +28,29 @@ class HeatmapGenerator:
             score = {CoverageStatus.DETECTED: 3, CoverageStatus.PARTIAL: 2, CoverageStatus.MISSED: 1}.get(
                 chain.status, 0
             )
-            techniques.append({
-                "techniqueID": chain.technique_id,
-                "color": color,
-                "score": score,
-                "comment": chain.reconciliation_note or f"{chain.status.value} ({chain.confidence.value})",
-                "enabled": True,
-                "showSubtechniques": True,
-            })
+            techniques.append(
+                {
+                    "techniqueID": chain.technique_id,
+                    "color": color,
+                    "score": score,
+                    "comment": chain.reconciliation_note or f"{chain.status.value} ({chain.confidence.value})",
+                    "enabled": True,
+                    "showSubtechniques": True,
+                }
+            )
 
         # Skipped techniques shown as white
         for tid in result.skipped_techniques:
-            techniques.append({
-                "techniqueID": tid,
-                "color": SKIPPED_COLOR,
-                "score": 0,
-                "comment": "Not emulated",
-                "enabled": True,
-                "showSubtechniques": False,
-            })
+            techniques.append(
+                {
+                    "techniqueID": tid,
+                    "color": SKIPPED_COLOR,
+                    "score": 0,
+                    "comment": "Not emulated",
+                    "enabled": True,
+                    "showSubtechniques": False,
+                }
+            )
 
         return {
             "name": f"PurpleForge Coverage — Run {result.run_id}",

@@ -83,9 +83,9 @@ class TestResolver:
         mock_atomic.check_technique_available.side_effect = lambda tid: tid == "T1003.001"
 
         techniques = [
-            _technique("T1059.001", "PowerShell"),      # Exact Caldera match
-            _technique("T1003.001", "LSASS Memory"),     # Atomic fallback
-            _technique("T9999", "Unknown"),               # Skip
+            _technique("T1059.001", "PowerShell"),  # Exact Caldera match
+            _technique("T1003.001", "LSASS Memory"),  # Atomic fallback
+            _technique("T9999", "Unknown"),  # Skip
         ]
         resolver = Resolver(mock_caldera, mock_atomic)
         plan = resolver.resolve(techniques, "test-run")

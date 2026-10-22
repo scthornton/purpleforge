@@ -52,25 +52,29 @@ class Resolver:
             # Try exact Caldera match
             exact_abilities = ability_index.get(tid, [])
             if exact_abilities:
-                resolved.append(ResolvedTechnique(
-                    technique_id=tid,
-                    technique_name=technique.technique_name,
-                    method=EmulationMethod.CALDERA,
-                    ability_id=exact_abilities[0].get("ability_id", ""),
-                ))
+                resolved.append(
+                    ResolvedTechnique(
+                        technique_id=tid,
+                        technique_name=technique.technique_name,
+                        method=EmulationMethod.CALDERA,
+                        ability_id=exact_abilities[0].get("ability_id", ""),
+                    )
+                )
                 caldera_count += 1
                 continue
 
             # Try parent Caldera match
             parent_abilities = ability_index.get(parent_tid, [])
             if parent_abilities and parent_tid != tid:
-                resolved.append(ResolvedTechnique(
-                    technique_id=tid,
-                    technique_name=technique.technique_name,
-                    method=EmulationMethod.CALDERA,
-                    ability_id=parent_abilities[0].get("ability_id", ""),
-                    parent_match=True,
-                ))
+                resolved.append(
+                    ResolvedTechnique(
+                        technique_id=tid,
+                        technique_name=technique.technique_name,
+                        method=EmulationMethod.CALDERA,
+                        ability_id=parent_abilities[0].get("ability_id", ""),
+                        parent_match=True,
+                    )
+                )
                 caldera_count += 1
                 continue
 
@@ -78,11 +82,13 @@ class Resolver:
             if atomic_available:
                 try:
                     if self._atomic.check_technique_available(tid):
-                        resolved.append(ResolvedTechnique(
-                            technique_id=tid,
-                            technique_name=technique.technique_name,
-                            method=EmulationMethod.ATOMIC,
-                        ))
+                        resolved.append(
+                            ResolvedTechnique(
+                                technique_id=tid,
+                                technique_name=technique.technique_name,
+                                method=EmulationMethod.ATOMIC,
+                            )
+                        )
                         atomic_count += 1
                         continue
                 except WinRMConnectionError:
@@ -90,12 +96,14 @@ class Resolver:
                     logger.warning("WinRM connection lost during resolution")
 
             # Skip
-            resolved.append(ResolvedTechnique(
-                technique_id=tid,
-                technique_name=technique.technique_name,
-                method=EmulationMethod.SKIP,
-                skip_reason=f"No emulation available for {tid}",
-            ))
+            resolved.append(
+                ResolvedTechnique(
+                    technique_id=tid,
+                    technique_name=technique.technique_name,
+                    method=EmulationMethod.SKIP,
+                    skip_reason=f"No emulation available for {tid}",
+                )
+            )
             skip_count += 1
 
         return ExecutionPlan(

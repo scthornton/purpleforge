@@ -111,23 +111,27 @@ class CalderaExecutor:
 
             if link:
                 status_code = link.get("status", -1)
-                records.append(EmulationRecord(
-                    technique_id=tid,
-                    method=EmulationMethod.CALDERA,
-                    status=EmulationStatus.SUCCESS if status_code == 0 else EmulationStatus.FAILED,
-                    execution_id=str(link.get("id", "")),
-                    start_time=start,
-                    end_time=now,
-                    raw_output=str(link.get("output", ""))[:5000],
-                ))
+                records.append(
+                    EmulationRecord(
+                        technique_id=tid,
+                        method=EmulationMethod.CALDERA,
+                        status=EmulationStatus.SUCCESS if status_code == 0 else EmulationStatus.FAILED,
+                        execution_id=str(link.get("id", "")),
+                        start_time=start,
+                        end_time=now,
+                        raw_output=str(link.get("output", ""))[:5000],
+                    )
+                )
             else:
-                records.append(EmulationRecord(
-                    technique_id=tid,
-                    method=EmulationMethod.CALDERA,
-                    status=EmulationStatus.FAILED,
-                    start_time=start,
-                    end_time=now,
-                    error_message=f"No matching link in operation chain for {tid}",
-                ))
+                records.append(
+                    EmulationRecord(
+                        technique_id=tid,
+                        method=EmulationMethod.CALDERA,
+                        status=EmulationStatus.FAILED,
+                        start_time=start,
+                        end_time=now,
+                        error_message=f"No matching link in operation chain for {tid}",
+                    )
+                )
 
         return records

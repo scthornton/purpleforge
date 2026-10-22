@@ -31,25 +31,29 @@ class AtomicExecutor:
                 end_time = datetime.now(UTC)
 
                 status = EmulationStatus.SUCCESS if result["status_code"] == 0 else EmulationStatus.FAILED
-                records.append(EmulationRecord(
-                    technique_id=technique.technique_id,
-                    method=EmulationMethod.ATOMIC,
-                    status=status,
-                    execution_id=f"atomic-{technique.technique_id}",
-                    start_time=start_time,
-                    end_time=end_time,
-                    raw_output=result["output"][:5000],
-                    error_message=result.get("error"),
-                ))
+                records.append(
+                    EmulationRecord(
+                        technique_id=technique.technique_id,
+                        method=EmulationMethod.ATOMIC,
+                        status=status,
+                        execution_id=f"atomic-{technique.technique_id}",
+                        start_time=start_time,
+                        end_time=end_time,
+                        raw_output=result["output"][:5000],
+                        error_message=result.get("error"),
+                    )
+                )
 
             except WinRMConnectionError as e:
-                records.append(EmulationRecord(
-                    technique_id=technique.technique_id,
-                    method=EmulationMethod.ATOMIC,
-                    status=EmulationStatus.ERROR,
-                    start_time=start_time,
-                    end_time=datetime.now(UTC),
-                    error_message=str(e),
-                ))
+                records.append(
+                    EmulationRecord(
+                        technique_id=technique.technique_id,
+                        method=EmulationMethod.ATOMIC,
+                        status=EmulationStatus.ERROR,
+                        start_time=start_time,
+                        end_time=datetime.now(UTC),
+                        error_message=str(e),
+                    )
+                )
 
         return records

@@ -48,15 +48,20 @@ class AdvisoryGenerator:
             api_key=api_key,  # type: ignore[arg-type]
             temperature=0.2,
         )
-        self._prompt = ChatPromptTemplate.from_messages([
-            ("system", ADVISORY_SYSTEM_PROMPT),
-            ("human", (
-                "Generate a Sigma detection rule for:\n"
-                "Technique: {technique_id} — {technique_name}\n"
-                "Tactic: {tactic}\n"
-                "Context from threat report: {description}"
-            )),
-        ])
+        self._prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", ADVISORY_SYSTEM_PROMPT),
+                (
+                    "human",
+                    (
+                        "Generate a Sigma detection rule for:\n"
+                        "Technique: {technique_id} — {technique_name}\n"
+                        "Tactic: {tactic}\n"
+                        "Context from threat report: {description}"
+                    ),
+                ),
+            ]
+        )
 
     def generate(
         self,
@@ -67,12 +72,14 @@ class AdvisoryGenerator:
     ) -> AdvisoryRule:
         """Generate a single advisory Sigma rule draft."""
         chain = self._prompt | self._llm.with_structured_output(SigmaRuleDraft)
-        result: SigmaRuleDraft = chain.invoke({  # type: ignore[assignment]
-            "technique_id": technique_id,
-            "technique_name": technique_name,
-            "tactic": tactic,
-            "description": description or f"Technique {technique_id} was emulated but not detected",
-        })
+        result: SigmaRuleDraft = chain.invoke(
+            {  # type: ignore[assignment]
+                "technique_id": technique_id,
+                "technique_name": technique_name,
+                "tactic": tactic,
+                "description": description or f"Technique {technique_id} was emulated but not detected",
+            }
+        )
 
         return AdvisoryRule(
             technique_id=technique_id,
