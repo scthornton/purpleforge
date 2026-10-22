@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
+import yaml
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
@@ -24,12 +25,40 @@ for the given MITRE ATT&CK technique. The rule should:
 
 Also assess your confidence in the rule quality and explain its limitations."""
 
+REQUIRED_SIGMA_KEYS = ("title", "logsource", "detection")
+
+
+class AdvisoryValidationError(Exception):
+    """Raised when a generated draft is not a usable Sigma rule."""
+
+
+def validate_sigma_yaml(rule_yaml: str) -> dict[str, Any]:
+    """Parse a Sigma draft and check the keys a rule cannot work without.
+
+    Returns the parsed mapping. Raises AdvisoryValidationError when the YAML does
+    not parse, is not a mapping, lacks title, logsource, or detection, or when the
+    detection block has no condition.
+    """
+    try:
+        parsed = yaml.safe_load(rule_yaml)
+    except yaml.YAMLError as e:
+        raise AdvisoryValidationError(f"Sigma draft is not valid YAML: {e}") from e
+    if not isinstance(parsed, dict):
+        raise AdvisoryValidationError("Sigma draft must be a YAML mapping")
+    missing = [key for key in REQUIRED_SIGMA_KEYS if key not in parsed]
+    if missing:
+        raise AdvisoryValidationError(f"Sigma draft is missing required keys: {', '.join(missing)}")
+    detection = parsed["detection"]
+    if not isinstance(detection, dict) or "condition" not in detection:
+        raise AdvisoryValidationError("Sigma draft detection block has no condition")
+    return parsed
+
 
 class SigmaRuleDraft(BaseModel):
     """Structured output for LLM-generated Sigma rule."""
 
     rule_yaml: str = Field(description="Complete Sigma rule in YAML format")
-    confidence: str = Field(description="high, medium, or low")
+    confidence: Literal["high", "medium", "low"] = Field(description="Confidence in the rule quality")
     explanation: str = Field(description="Why this detection logic should work")
     limitations: str = Field(description="Known gaps in the rule")
     false_positive_notes: str = Field(description="Expected false positive scenarios")
@@ -55,7 +84,7 @@ class AdvisoryGenerator:
                     "human",
                     (
                         "Generate a Sigma detection rule for:\n"
-                        "Technique: {technique_id} — {technique_name}\n"
+                        "Technique: {technique_id} ({technique_name})\n"
                         "Tactic: {tactic}\n"
                         "Context from threat report: {description}"
                     ),
@@ -80,6 +109,7 @@ class AdvisoryGenerator:
                 "description": description or f"Technique {technique_id} was emulated but not detected",
             }
         )
+        validate_sigma_yaml(result.rule_yaml)
 
         return AdvisoryRule(
             technique_id=technique_id,
@@ -96,7 +126,10 @@ class AdvisoryGenerator:
         self,
         missed_techniques: list[dict[str, Any]],
     ) -> list[AdvisoryRule]:
-        """Generate advisory rules for all missed techniques. Failures are logged and skipped."""
+        """Generate advisory rules for all missed techniques.
+
+        Generation or validation failures are logged and the technique is skipped.
+        """
         rules: list[AdvisoryRule] = []
         for tech in missed_techniques:
             try:
