@@ -38,7 +38,35 @@ jobs:
       - name: Type check
         run: mypy
       - name: Test
-        run: pytest --cov=purpleforge --cov-report=term-missing --cov-fail-under=55
+        run: pytest --cov=purpleforge --cov-report=term-missing --cov-fail-under=80
+
+  lockfile:
+    name: lockfile is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Verify uv.lock matches pyproject.toml
+        run: uv lock --locked
+
+  security:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          uv venv .venv
+          uv pip install -e ".[dev,github]"
+      - name: Audit resolved dependencies
+        run: |
+          uv pip freeze > requirements-audit.txt
+          uvx pip-audit -r requirements-audit.txt --no-deps
 
   package:
     name: wheel smoke test

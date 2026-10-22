@@ -4,7 +4,7 @@ install:
 	pip install -e ".[dev,github]"
 
 test:
-	pytest --cov=purpleforge --cov-report=term-missing
+	pytest --cov=purpleforge --cov-report=term-missing --cov-fail-under=80
 
 lint:
 	ruff check .
