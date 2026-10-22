@@ -32,12 +32,13 @@ class Resolver:
             tid = ability.get("technique_id", "")
             ability_index.setdefault(tid, []).append(ability)
 
-        # Check if Atomic is reachable
+        # Check if Atomic is reachable. RESOLVE is read-only: it probes the host
+        # but never installs the framework or runs a test.
         atomic_available = True
         try:
-            self._atomic.ensure_atomic_installed()
+            self._atomic.check_connection()
         except WinRMConnectionError:
-            logger.warning("WinRM unreachable — Atomic tests unavailable")
+            logger.warning("WinRM unreachable, Atomic tests unavailable")
             atomic_available = False
 
         resolved: list[ResolvedTechnique] = []

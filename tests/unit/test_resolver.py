@@ -26,7 +26,7 @@ def mock_caldera() -> MagicMock:
 @pytest.fixture
 def mock_atomic() -> MagicMock:
     runner = MagicMock()
-    runner.ensure_atomic_installed.return_value = True
+    runner.check_connection.return_value = True
     return runner
 
 
@@ -99,9 +99,10 @@ class TestResolver:
         """If WinRM is unreachable, all Atomic candidates become skips."""
         from purpleforge.clients.atomic_runner import WinRMConnectionError
 
-        mock_atomic.ensure_atomic_installed.side_effect = WinRMConnectionError("unreachable")
+        mock_atomic.check_connection.side_effect = WinRMConnectionError("unreachable")
 
         resolver = Resolver(mock_caldera, mock_atomic)
         plan = resolver.resolve([_technique("T1003.001", "LSASS Memory")], "test-run")
 
         assert plan.techniques[0].method == EmulationMethod.SKIP
+        mock_atomic.ensure_atomic_installed.assert_not_called()

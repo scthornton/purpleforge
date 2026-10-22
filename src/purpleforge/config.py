@@ -30,6 +30,11 @@ class PurpleForgeSettings(BaseSettings):
     winrm_password: SecretStr
     winrm_transport: str = "ntlm"
     winrm_port: int = 5985
+    winrm_use_https: bool = False
+    winrm_cert_validation: str = "validate"
+    winrm_ca_trust_path: str | None = None
+    atomic_installer_ref: str = "v2.3.0"
+    atomic_test_timeout: int = 120
 
     # GitHub (optional, only needed for deploy-draft --target github)
     github_token: SecretStr | None = None
