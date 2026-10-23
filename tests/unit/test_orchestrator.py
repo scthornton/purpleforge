@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
+from purpleforge.models.emulation import EmulationMethod, EmulationRecord, EmulationStatus, ResolvedTechnique
 from purpleforge.models.extraction import Confidence, ExtractedTTP
 from purpleforge.models.pipeline import RunStatus
 from purpleforge.pipeline.orchestrator import PipelineError, PipelineOrchestrator
@@ -223,6 +224,120 @@ class TestOrchestratorConfirm:
 
         with pytest.raises(PipelineError, match="not found"):
             orchestrator.confirm_run(run.run_id)
+
+
+class TestAtomicFallback:
+    """Execution-time Atomic fallback for failed Caldera techniques."""
+
+    @staticmethod
+    def _configure_winrm(settings: MagicMock, *, enabled: bool = True, host: str | None = "10.0.0.3") -> None:
+        settings.atomic_fallback = enabled
+        settings.winrm_host = host
+        settings.winrm_password = "pw" if host else None
+        settings.winrm_host_value.return_value = host
+        settings.winrm_user = "pfadmin"
+        settings.winrm_pass.return_value = "pw"
+        settings.winrm_port = 5986
+        settings.winrm_transport = "basic"
+        settings.winrm_use_https = True
+        settings.winrm_cert_validation = "ignore"
+        settings.winrm_ca_trust_path = None
+        settings.atomic_installer_ref = "v2.3.0"
+        settings.atomic_test_timeout = 120
+
+    @staticmethod
+    def _failed_caldera() -> tuple[list[ResolvedTechnique], list[EmulationRecord]]:
+        techs = [
+            ResolvedTechnique(
+                technique_id="T1016", technique_name="Net Config", method=EmulationMethod.CALDERA, ability_id="a1"
+            )
+        ]
+        records = [
+            EmulationRecord(
+                technique_id="T1016",
+                method=EmulationMethod.CALDERA,
+                status=EmulationStatus.FAILED,
+                error_message="status 1",
+            )
+        ]
+        return techs, records
+
+    def test_disabled_setting_skips_fallback(self, mock_settings: MagicMock) -> None:
+        self._configure_winrm(mock_settings, enabled=False)
+        techs, records = self._failed_caldera()
+        orch = PipelineOrchestrator(mock_settings)
+
+        with patch("purpleforge.pipeline.orchestrator.AtomicExecutor") as ax:
+            out = orch._apply_atomic_fallback(techs, records)
+
+        ax.assert_not_called()
+        assert out == records
+
+    def test_no_failures_skips_fallback(self, mock_settings: MagicMock) -> None:
+        self._configure_winrm(mock_settings)
+        techs = [
+            ResolvedTechnique(
+                technique_id="T1016", technique_name="Net Config", method=EmulationMethod.CALDERA, ability_id="a1"
+            )
+        ]
+        records = [
+            EmulationRecord(technique_id="T1016", method=EmulationMethod.CALDERA, status=EmulationStatus.SUCCESS)
+        ]
+        orch = PipelineOrchestrator(mock_settings)
+
+        with patch("purpleforge.pipeline.orchestrator.AtomicExecutor") as ax:
+            out = orch._apply_atomic_fallback(techs, records)
+
+        ax.assert_not_called()
+        assert out == records
+
+    def test_winrm_unconfigured_skips_fallback(self, mock_settings: MagicMock) -> None:
+        self._configure_winrm(mock_settings, host=None)
+        techs, records = self._failed_caldera()
+        orch = PipelineOrchestrator(mock_settings)
+
+        with patch("purpleforge.pipeline.orchestrator.AtomicExecutor") as ax:
+            out = orch._apply_atomic_fallback(techs, records)
+
+        ax.assert_not_called()
+        assert out == records
+
+    def test_atomic_success_replaces_failure(self, mock_settings: MagicMock) -> None:
+        self._configure_winrm(mock_settings)
+        techs, records = self._failed_caldera()
+        atomic_rec = EmulationRecord(
+            technique_id="T1016", method=EmulationMethod.ATOMIC, status=EmulationStatus.SUCCESS
+        )
+        orch = PipelineOrchestrator(mock_settings)
+
+        with (
+            patch("purpleforge.pipeline.orchestrator.AtomicRunner"),
+            patch("purpleforge.pipeline.orchestrator.AtomicExecutor") as ax,
+        ):
+            ax.return_value.execute.return_value = [atomic_rec]
+            out = orch._apply_atomic_fallback(techs, records)
+
+        # The retried technique was passed to the executor, and its success replaced the failure.
+        targets = ax.return_value.execute.call_args.args[0]
+        assert [t.technique_id for t in targets] == ["T1016"]
+        assert all(t.method == EmulationMethod.ATOMIC for t in targets)
+        assert len(out) == 1
+        assert out[0].method == EmulationMethod.ATOMIC and out[0].status == EmulationStatus.SUCCESS
+
+    def test_executor_error_is_best_effort(self, mock_settings: MagicMock) -> None:
+        self._configure_winrm(mock_settings)
+        techs, records = self._failed_caldera()
+        orch = PipelineOrchestrator(mock_settings)
+
+        with (
+            patch("purpleforge.pipeline.orchestrator.AtomicRunner"),
+            patch("purpleforge.pipeline.orchestrator.AtomicExecutor") as ax,
+        ):
+            ax.return_value.execute.side_effect = RuntimeError("winrm blew up")
+            out = orch._apply_atomic_fallback(techs, records)
+
+        # A fallback failure never aborts the run; the original Caldera records are kept.
+        assert out == records
 
 
 class TestResume:

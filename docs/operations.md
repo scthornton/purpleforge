@@ -38,6 +38,7 @@ PurpleForge reads configuration from the environment and from a local `.env` fil
 | `WINRM_CA_TRUST_PATH` | unset | CA bundle path for TLS |
 | `ATOMIC_INSTALLER_REF` | `v2.3.0` | Pinned Atomic Red Team installer release |
 | `ATOMIC_TEST_TIMEOUT` | `120` | Per-test timeout in seconds |
+| `ATOMIC_FALLBACK` | `true` | Retry a failed Caldera technique via Atomic Red Team and keep whichever ran |
 | `GITHUB_TOKEN` | unset | Token for deploy-draft to GitHub |
 | `DETECTION_REPO` | unset | Target repository for drafts |
 | `GITHUB_BASE_URL` | unset | API base URL for GitHub Enterprise Server |

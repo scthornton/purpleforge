@@ -17,10 +17,11 @@ from purpleforge.clients.limacharlie_client import LimaCharlieClient
 from purpleforge.config import PurpleForgeSettings
 from purpleforge.execute.atomic_executor import AtomicExecutor
 from purpleforge.execute.caldera_executor import CalderaExecutor
+from purpleforge.execute.fallback import merge_fallback_results, select_fallback_targets
 from purpleforge.ingest.pdf_loader import chunk_documents, load_pdf
 from purpleforge.ingest.ttp_extractor import TTPExtractor
 from purpleforge.logging_config import add_run_log_handler, remove_run_log_handler
-from purpleforge.models.emulation import EmulationMethod, EmulationRecord
+from purpleforge.models.emulation import EmulationMethod, EmulationRecord, EmulationStatus, ResolvedTechnique
 from purpleforge.models.extraction import NormalizedTechnique
 from purpleforge.models.pipeline import PipelineRun, RunStatus, StepStatus
 from purpleforge.pipeline.run_store import RunStore
@@ -364,8 +365,6 @@ class PipelineOrchestrator:
         self.store.update_status(run_id, RunStatus.EXECUTING)
         self.store.start_step(run_id, "EXECUTE")
 
-        from purpleforge.models.emulation import ResolvedTechnique
-
         plan_data = self.store.read_artifact(run_id, "execution_plan.yaml")
         techniques = [ResolvedTechnique.model_validate(t) for t in plan_data.get("techniques", [])]
         caldera_techs = [t for t in techniques if t.method == EmulationMethod.CALDERA]
@@ -386,12 +385,17 @@ class PipelineOrchestrator:
                 poll_interval=self.settings.caldera_poll_interval,
                 group=self.settings.caldera_group,
             )
-            all_records.extend(executor.execute(caldera_techs))
+            caldera_records = executor.execute(caldera_techs)
 
             # Persist the Caldera operation so a coverage claim can be re-audited
             # against the operation chain later.
             if executor.last_operation is not None:
                 self.store.write_artifact(run_id, "caldera_operation.json", executor.last_operation)
+
+            # A broken stock ability fails even on a healthy host; retry those
+            # techniques via Atomic Red Team and keep whichever actually ran.
+            caldera_records = self._apply_atomic_fallback(caldera_techs, caldera_records)
+            all_records.extend(caldera_records)
 
         # Execute Atomic tests sequentially
         if atomic_techs:
@@ -415,6 +419,57 @@ class PipelineOrchestrator:
         self.store.complete_step(run_id, "EXECUTE", artifact_path="emulation_results.yaml")
 
         logger.info("Executed %d techniques", len(all_records))
+
+    def _apply_atomic_fallback(
+        self,
+        caldera_techs: list[ResolvedTechnique],
+        caldera_records: list[EmulationRecord],
+    ) -> list[EmulationRecord]:
+        """Retry failed Caldera techniques via Atomic Red Team and keep the better result.
+
+        A broken stock Caldera ability returns a non-zero status even when the
+        host and agent are healthy. When that happens, re-run the same technique
+        through Atomic Red Team over WinRM; an Atomic success replaces the
+        Caldera failure so coverage reflects a technique that actually executed.
+        The fallback is best effort: it never aborts the run, it is skipped when
+        WinRM is not configured, and it does not install the framework (that
+        stays an explicit operator action).
+        """
+        if not self.settings.atomic_fallback:
+            return caldera_records
+
+        targets = select_fallback_targets(caldera_records, caldera_techs)
+        if not targets:
+            return caldera_records
+
+        if not (self.settings.winrm_host and self.settings.winrm_password):
+            logger.warning(
+                "%d Caldera technique(s) failed but WinRM is not configured; skipping Atomic fallback",
+                len(targets),
+            )
+            return caldera_records
+
+        logger.info("Retrying %d failed Caldera technique(s) via Atomic Red Team fallback", len(targets))
+        try:
+            runner = AtomicRunner(
+                host=self.settings.winrm_host_value(),
+                user=self.settings.winrm_user,
+                password=self.settings.winrm_pass(),
+                port=self.settings.winrm_port,
+                transport=self.settings.winrm_transport,
+                use_https=self.settings.winrm_use_https,
+                server_cert_validation=self.settings.winrm_cert_validation,
+                ca_trust_path=self.settings.winrm_ca_trust_path,
+                installer_ref=self.settings.atomic_installer_ref,
+            )
+            atomic_records = AtomicExecutor(runner, test_timeout=self.settings.atomic_test_timeout).execute(targets)
+        except Exception as e:  # the fallback must never abort the run
+            logger.warning("Atomic fallback could not run: %s", e)
+            return caldera_records
+
+        recovered = sum(1 for r in atomic_records if r.status == EmulationStatus.SUCCESS)
+        logger.info("Atomic fallback recovered %d of %d failed technique(s)", recovered, len(targets))
+        return merge_fallback_results(caldera_records, atomic_records)
 
     def _step_wait(self, run_id: str) -> None:
         """WAIT step: sleep for detection propagation delay."""
