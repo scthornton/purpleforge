@@ -384,6 +384,7 @@ class PipelineOrchestrator:
                 timeout=self.settings.caldera_operation_timeout,
                 poll_interval=self.settings.caldera_poll_interval,
                 group=self.settings.caldera_group,
+                max_operation_timeout=self.settings.caldera_max_operation_timeout,
             )
             caldera_records = executor.execute(caldera_techs)
 

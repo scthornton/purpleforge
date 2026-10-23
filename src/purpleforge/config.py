@@ -61,6 +61,10 @@ class PurpleForgeSettings(BaseSettings):
     # Pipeline
     detection_wait_seconds: int = 120
     caldera_operation_timeout: int = 300
+    # Ceiling for the beacon-aware auto-raise of the Caldera operation timeout.
+    # The executor raises the timeout to fit the plan when a slow agent beacon
+    # would otherwise time the operation out, but never above this bound.
+    caldera_max_operation_timeout: int = 1800
     caldera_poll_interval: int = 5
     detection_query_buffer: int = 60
     run_base_dir: str = "./data/runs"

@@ -29,6 +29,7 @@ All notable changes to PurpleForge are recorded here. The format follows
 - A Caldera ability is chosen only when its executor matches a connected agent's platform.
 - A failed Caldera emulation records why it failed (the link's non-zero status and the tail of its command output) in `error_message`, so an inconclusive technique is actionable instead of an empty error. Surfaced by a live lab run where 4 of 6 abilities failed with no recorded reason.
 - A failed Caldera technique is retried through Atomic Red Team over WinRM and the result that actually executed is kept, so a broken stock ability on a healthy host no longer drags coverage down (`ATOMIC_FALLBACK`, on by default; skipped when WinRM is unconfigured; never installs the framework). Same live lab run: 4 of 6 stock abilities failed with the host and agent healthy.
+- The Caldera operation timeout is now beacon-aware. A fixed timeout against a slow agent beacon silently timed the whole operation out and turned every technique inconclusive with no hint why (exactly what happened on the first lab run). The executor estimates the time the plan needs from the agent beacon (`sleep_max`) and the ability count, raises the effective timeout to fit it (bounded by `CALDERA_MAX_OPERATION_TIMEOUT`) with a warning, and a genuine timeout now records the beacon and plan size so the cause is actionable.
 - CI runs on a pinned ruff and mypy, checks the lockfile is current, audits dependencies with pip-audit, and enforces an 80% coverage floor.
 
 ### Removed
