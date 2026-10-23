@@ -47,6 +47,11 @@ class PurpleForgeSettings(BaseSettings):
     winrm_ca_trust_path: str | None = None
     atomic_installer_ref: str = "v2.3.0"
     atomic_test_timeout: int = 120
+    # When a Caldera ability runs but fails (a broken stock ability on a healthy
+    # host), retry the same technique via Atomic Red Team and keep whichever
+    # result actually executed. Requires WinRM to be configured; otherwise the
+    # Caldera failures are left untouched.
+    atomic_fallback: bool = True
 
     # GitHub (optional, only needed for deploy-draft --target github)
     github_token: SecretStr | None = None
