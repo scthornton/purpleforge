@@ -27,6 +27,7 @@ All notable changes to PurpleForge are recorded here. The format follows
 
 - Credentials are validated per step with a clear message naming the missing variable, instead of every command requiring every secret. Read-only commands no longer silently fall back to `./data/runs`.
 - A Caldera ability is chosen only when its executor matches a connected agent's platform.
+- A failed Caldera emulation records why it failed (the link's non-zero status and the tail of its command output) in `error_message`, so an inconclusive technique is actionable instead of an empty error. Surfaced by a live lab run where 4 of 6 abilities failed with no recorded reason.
 - CI runs on a pinned ruff and mypy, checks the lockfile is current, audits dependencies with pip-audit, and enforces an 80% coverage floor.
 
 ### Removed
