@@ -111,6 +111,30 @@ techniques are excluded from both coverage figures.</p>
 </tbody>
 </table>
 
+{% if unattributed and unattributed.unattributed_count > 0 %}
+<h2>Detection Noise Floor</h2>
+<p class="meta">{{ unattributed.attributed_count + unattributed.unattributed_count }} distinct detections fired inside the
+technique windows: {{ unattributed.attributed_count }} tag-matched an emulated technique, and
+{{ unattributed.unattributed_count }} did not (unattributed, no ATT&amp;CK tag match). Unattributed activity is
+triage context only and never counts toward coverage. Busiest unattributed rules:</p>
+<table>
+<thead>
+<tr>
+  <th>Rule</th>
+  <th>Unattributed detections</th>
+</tr>
+</thead>
+<tbody>
+{% for rule in unattributed.top_rules %}
+<tr>
+  <td>{{ rule.rule_name }}</td>
+  <td>{{ rule.count }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% endif %}
+
 <footer>
   PurpleForge v{{ version }} | Evidence-driven purple team pipeline | perfecXion.ai
 </footer>

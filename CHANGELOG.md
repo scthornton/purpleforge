@@ -7,6 +7,7 @@ All notable changes to PurpleForge are recorded here. The format follows
 
 ### Added
 
+- The coverage report surfaces a detection noise floor: detections that fired inside the technique windows but matched no emulated technique by tag, de-duplicated across overlapping windows and ranked by rule name. An analyst sees how much unattributed activity surrounded the run without it ever counting toward coverage. Surfaced by a live lab run where 447 detections fired in the window but only the tag-matched ones were credited.
 - Enterprise readiness assessment and hardening roadmap under `docs/`.
 - Continuous integration: lint, format, type check, and tests on Python 3.11 to 3.13, plus a wheel build and install smoke test. Dependabot and pre-commit configured.
 - End-to-end integration test that drives `confirm` through resolve, execute, validate, and report with mocked integrations.
