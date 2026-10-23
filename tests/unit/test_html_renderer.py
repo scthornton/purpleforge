@@ -6,11 +6,16 @@ from importlib.resources import files
 from pathlib import Path
 
 from purpleforge import __version__
-from purpleforge.models.evidence import CoverageResult, EvidenceChain
+from purpleforge.models.evidence import (
+    CoverageResult,
+    EvidenceChain,
+    UnattributedActivity,
+    UnattributedRule,
+)
 from purpleforge.report.html_renderer import HtmlRenderer
 
 
-def _result(chains: list[EvidenceChain]) -> CoverageResult:
+def _result(chains: list[EvidenceChain], unattributed: UnattributedActivity | None = None) -> CoverageResult:
     return CoverageResult(
         run_id="abc123def456",
         total_techniques=4,
@@ -22,6 +27,7 @@ def _result(chains: list[EvidenceChain]) -> CoverageResult:
         strict_coverage_pct=33.3,
         evidence_chains=chains,
         skipped_techniques=["T1071.001"],
+        unattributed=unattributed,
     )
 
 
@@ -47,3 +53,21 @@ def test_template_dir_override(tmp_path: Path, sample_evidence_chains: list[Evid
     (tmp_path / "report.html.j2").write_text("custom {{ run_id }} {{ version }}")
     html = HtmlRenderer(template_dir=tmp_path).render(_result(sample_evidence_chains))
     assert html == f"custom abc123def456 {__version__}"
+
+
+def test_noise_floor_section_rendered_when_present(sample_evidence_chains: list[EvidenceChain]) -> None:
+    unattributed = UnattributedActivity(
+        attributed_count=6,
+        unattributed_count=98,
+        top_rules=[UnattributedRule(rule_name="Suspicious PowerShell", count=14)],
+    )
+    html = HtmlRenderer().render(_result(sample_evidence_chains, unattributed))
+    assert "Detection Noise Floor" in html
+    assert "Suspicious PowerShell" in html
+    assert "98" in html
+
+
+def test_noise_floor_section_absent_when_no_unattributed(sample_evidence_chains: list[EvidenceChain]) -> None:
+    # No unattributed activity (None, the default) means no noise-floor section.
+    html = HtmlRenderer().render(_result(sample_evidence_chains))
+    assert "Detection Noise Floor" not in html

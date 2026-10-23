@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from purpleforge.models.evidence import CoverageStatus, EvidenceChain
-from purpleforge.report.coverage_analyzer import CoverageAnalyzer
+from purpleforge.models.evidence import CoverageStatus, DetectionMatch, EvidenceChain, MatchType
+from purpleforge.report.coverage_analyzer import TOP_UNATTRIBUTED_RULES, CoverageAnalyzer
 
 
 def _chain(tid: str, status: CoverageStatus) -> EvidenceChain:
@@ -21,6 +21,28 @@ def _chain(tid: str, status: CoverageStatus) -> EvidenceChain:
         detection_query_window_end=now,
         status=status,
     )
+
+
+def _match(alert_id: str, rule_name: str, match_type: MatchType = MatchType.TIME_CORRELATION) -> DetectionMatch:
+    return DetectionMatch(
+        alert_id=alert_id,
+        alert_timestamp=datetime.now(UTC),
+        rule_name=rule_name,
+        matched_tag="" if match_type == MatchType.TIME_CORRELATION else "attack.t1059.001",
+        match_type=match_type,
+    )
+
+
+def _chain_with_alerts(
+    tid: str,
+    status: CoverageStatus,
+    matching: list[DetectionMatch] | None = None,
+    unattributed: list[DetectionMatch] | None = None,
+) -> EvidenceChain:
+    chain = _chain(tid, status)
+    chain.matching_alerts = matching or []
+    chain.unattributed_alerts = unattributed or []
+    return chain
 
 
 class TestCoverageAnalyzer:
@@ -88,3 +110,59 @@ class TestCoverageAnalyzer:
         assert result.inconclusive_count == 1
         assert result.coverage_pct == 0.0
         assert result.strict_coverage_pct == 0.0
+
+
+class TestUnattributedSummary:
+    def test_deduplicates_across_overlapping_windows(self) -> None:
+        # The same unattributed alert sits in two techniques' windows.
+        noise = _match("a1", "Suspicious PowerShell")
+        chains = [
+            _chain_with_alerts("T1059.001", CoverageStatus.DETECTED, unattributed=[noise]),
+            _chain_with_alerts("T1057", CoverageStatus.MISSED, unattributed=[noise]),
+        ]
+        result = CoverageAnalyzer().analyze(chains, "r")
+        assert result.unattributed is not None
+        # Counted once, not twice.
+        assert result.unattributed.unattributed_count == 1
+        assert result.unattributed.top_rules[0].count == 1
+
+    def test_attributed_alert_never_counted_as_unattributed(self) -> None:
+        hit = _match("a1", "PowerShell rule", MatchType.EXACT_TECHNIQUE)
+        # Same alert id shows up in another window's unattributed list.
+        stray = _match("a1", "PowerShell rule")
+        chains = [
+            _chain_with_alerts("T1059.001", CoverageStatus.DETECTED, matching=[hit]),
+            _chain_with_alerts("T1057", CoverageStatus.MISSED, unattributed=[stray]),
+        ]
+        result = CoverageAnalyzer().analyze(chains, "r")
+        assert result.unattributed is not None
+        assert result.unattributed.attributed_count == 1
+        assert result.unattributed.unattributed_count == 0
+
+    def test_top_rules_ranked_and_capped(self) -> None:
+        unattributed = []
+        # One rule with many alerts, then more rules than the cap with one alert each.
+        for i in range(5):
+            unattributed.append(_match(f"busy{i}", "Noisy rule"))
+        for i in range(TOP_UNATTRIBUTED_RULES + 3):
+            unattributed.append(_match(f"q{i}", f"Rule {i}"))
+        chains = [_chain_with_alerts("T1057", CoverageStatus.MISSED, unattributed=unattributed)]
+        result = CoverageAnalyzer().analyze(chains, "r")
+        assert result.unattributed is not None
+        assert len(result.unattributed.top_rules) == TOP_UNATTRIBUTED_RULES
+        # The busiest rule leads.
+        assert result.unattributed.top_rules[0].rule_name == "Noisy rule"
+        assert result.unattributed.top_rules[0].count == 5
+        # Every unique alert is still counted even beyond the displayed rules.
+        assert result.unattributed.unattributed_count == 5 + TOP_UNATTRIBUTED_RULES + 3
+
+    def test_no_unattributed_yields_zeros(self) -> None:
+        chains = [
+            _chain_with_alerts(
+                "T1059.001", CoverageStatus.DETECTED, matching=[_match("a1", "x", MatchType.EXACT_TECHNIQUE)]
+            )
+        ]
+        result = CoverageAnalyzer().analyze(chains, "r")
+        assert result.unattributed is not None
+        assert result.unattributed.unattributed_count == 0
+        assert result.unattributed.top_rules == []

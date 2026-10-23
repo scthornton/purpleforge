@@ -85,6 +85,28 @@ class EvidenceChain(BaseModel):
     parent_technique_checked: str = ""
 
 
+class UnattributedRule(BaseModel):
+    """One detection rule and how many unique unattributed alerts it produced."""
+
+    rule_name: str
+    count: int
+
+
+class UnattributedActivity(BaseModel):
+    """Run-level roll-up of detections that fired inside technique windows but
+    matched no emulated technique by tag.
+
+    De-duplicated across overlapping technique windows by alert id, so an alert
+    that lands in several windows is counted once. This is context for an
+    analyst (the detection noise floor around the run), never counted toward
+    coverage.
+    """
+
+    attributed_count: int = 0
+    unattributed_count: int = 0
+    top_rules: list[UnattributedRule] = Field(default_factory=list)
+
+
 class CoverageResult(BaseModel):
     """Aggregated coverage report for an entire run."""
 
@@ -100,6 +122,7 @@ class CoverageResult(BaseModel):
     strict_coverage_pct: float
     evidence_chains: list[EvidenceChain]
     skipped_techniques: list[str] = Field(default_factory=list)
+    unattributed: UnattributedActivity | None = None
 
     @staticmethod
     def compute_coverage_pct(detected: int, partial: int, total: int, skipped: int, inconclusive: int = 0) -> float:

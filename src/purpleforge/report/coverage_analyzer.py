@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
-from purpleforge.models.evidence import CoverageResult, CoverageStatus, EvidenceChain
+from collections import Counter
+
+from purpleforge.models.evidence import (
+    CoverageResult,
+    CoverageStatus,
+    EvidenceChain,
+    UnattributedActivity,
+    UnattributedRule,
+)
+
+# How many of the busiest unattributed rules to list in the report.
+TOP_UNATTRIBUTED_RULES = 10
 
 
 class CoverageAnalyzer:
@@ -38,4 +49,41 @@ class CoverageAnalyzer:
             ),
             evidence_chains=evidence_chains,
             skipped_techniques=skipped,
+            unattributed=self._summarize_unattributed(evidence_chains),
+        )
+
+    @staticmethod
+    def _summarize_unattributed(evidence_chains: list[EvidenceChain]) -> UnattributedActivity:
+        """Roll up unattributed activity across all chains, de-duplicated by alert id.
+
+        The validator records unattributed alerts per technique window, so an
+        alert sitting in several overlapping windows appears in several chains.
+        Counting by unique alert id turns that duplicated noise into one honest
+        number: how many distinct detections fired in the run's windows without
+        matching any emulated technique, and which rules were the noisiest.
+        """
+        attributed_ids: set[str] = set()
+        for chain in evidence_chains:
+            for alert in chain.matching_alerts:
+                if alert.alert_id:
+                    attributed_ids.add(alert.alert_id)
+
+        # Keep one rule name per unique unattributed alert id, skipping any id
+        # that was also attributed to a technique somewhere.
+        rule_by_alert: dict[str, str] = {}
+        for chain in evidence_chains:
+            for alert in chain.unattributed_alerts:
+                aid = alert.alert_id
+                if not aid or aid in attributed_ids or aid in rule_by_alert:
+                    continue
+                rule_by_alert[aid] = alert.rule_name or "Unknown"
+
+        counts = Counter(rule_by_alert.values())
+        top_rules = [
+            UnattributedRule(rule_name=name, count=count) for name, count in counts.most_common(TOP_UNATTRIBUTED_RULES)
+        ]
+        return UnattributedActivity(
+            attributed_count=len(attributed_ids),
+            unattributed_count=len(rule_by_alert),
+            top_rules=top_rules,
         )

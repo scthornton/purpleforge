@@ -38,5 +38,6 @@ class HtmlRenderer:
             strict_coverage_pct=result.strict_coverage_pct,
             evidence_chains=result.evidence_chains,
             skipped_techniques=result.skipped_techniques,
+            unattributed=result.unattributed,
             version=__version__,
         )
