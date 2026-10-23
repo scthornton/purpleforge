@@ -44,6 +44,7 @@ PurpleForge reads configuration from the environment and from a local `.env` fil
 | `GITHUB_BASE_URL` | unset | API base URL for GitHub Enterprise Server |
 | `DETECTION_WAIT_SECONDS` | `120` | Wait for detection propagation |
 | `CALDERA_OPERATION_TIMEOUT` | `300` | Caldera operation timeout |
+| `CALDERA_MAX_OPERATION_TIMEOUT` | `1800` | Ceiling for the beacon-aware auto-raise of the operation timeout |
 | `CALDERA_POLL_INTERVAL` | `5` | Caldera poll interval |
 | `DETECTION_QUERY_BUFFER` | `60` | Seconds of buffer around the query window |
 | `RUN_BASE_DIR` | `./data/runs` | Where run state and artifacts are written |

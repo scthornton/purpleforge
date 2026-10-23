@@ -48,6 +48,28 @@ def _failure_reason(status_code: Any, output: str) -> str:
     return f"Caldera link reported non-zero status {status_code} with no command output captured"
 
 
+def max_beacon_seconds(agents: list[dict[str, Any]]) -> int:
+    """Largest agent beacon (``sleep_max``) across the agents, or 0 when unknown.
+
+    The slowest agent bounds how long the operation needs, since each ability
+    only runs when its agent next checks in.
+    """
+    values = [int(a["sleep_max"]) for a in agents if isinstance(a.get("sleep_max"), int | float)]
+    return max(values) if values else 0
+
+
+def estimate_operation_seconds(num_abilities: int, beacon_max: int, grace: int = 30) -> int:
+    """Rough lower bound for every link to run: each ability waits up to one beacon."""
+    return max(num_abilities, 0) * max(beacon_max, 0) + grace
+
+
+def scaled_timeout(configured: int, estimated: int, ceiling: int) -> int:
+    """Raise the configured timeout toward the estimate, never below configured, never above the ceiling."""
+    if estimated <= configured:
+        return configured
+    return min(estimated, max(configured, ceiling))
+
+
 class CalderaExecutor:
     """Execute the Caldera portion of an execution plan as a single operation."""
 
@@ -58,12 +80,16 @@ class CalderaExecutor:
         timeout: int = 300,
         poll_interval: int = 5,
         group: str = "red",
+        max_operation_timeout: int = 1800,
     ) -> None:
         self._client = client
         self._run_id = run_id
         self._timeout = timeout
         self._poll_interval = poll_interval
         self._group = group
+        # Ceiling for the beacon-aware timeout auto-raise, so a pathological
+        # beacon cannot make the operation hang indefinitely.
+        self._max_operation_timeout = max_operation_timeout
         # The operation object this executor ran or reused, for the audit report.
         self.last_operation: dict[str, Any] | None = None
 
@@ -95,7 +121,27 @@ class CalderaExecutor:
             return self._extract_results(op, techniques, str(existing.get("id", "")))
 
         # New operation. Fail before creating anything if no agent can run it.
-        self._client.find_agents(self._group)
+        agents = self._client.find_agents(self._group)
+
+        # A fixed timeout against a slow agent beacon silently times the whole
+        # operation out and turns every technique inconclusive with no hint why.
+        # Estimate the time this plan needs from the beacon and raise the timeout
+        # to fit it, bounded so a pathological beacon cannot hang the run.
+        effective_timeout = self._timeout
+        beacon = max_beacon_seconds(agents)
+        estimated = estimate_operation_seconds(len(ability_ids), beacon)
+        if beacon > 0 and estimated > self._timeout:
+            effective_timeout = scaled_timeout(self._timeout, estimated, self._max_operation_timeout)
+            logger.warning(
+                "Caldera plan of %d abilities with agent beacon up to %ds needs about %ds, over "
+                "CALDERA_OPERATION_TIMEOUT=%ds. Raising the effective timeout to %ds for this operation; "
+                "lower the agent beacon (sleep_max) or raise the timeout to avoid a silent all-inconclusive run.",
+                len(ability_ids),
+                beacon,
+                estimated,
+                self._timeout,
+                effective_timeout,
+            )
 
         adversary = self._client.create_adversary(name=op_name, ability_ids=ability_ids)
         adversary_id = str(adversary.get("adversary_id", ""))
@@ -107,7 +153,7 @@ class CalderaExecutor:
 
         try:
             finished = self._client.wait_for_operation(
-                operation_id, timeout=self._timeout, poll_interval=self._poll_interval
+                operation_id, timeout=effective_timeout, poll_interval=self._poll_interval
             )
             self.last_operation = finished
             return self._extract_results(finished, techniques, operation_id)
@@ -119,7 +165,11 @@ class CalderaExecutor:
                     status=EmulationStatus.TIMEOUT,
                     execution_id=operation_id,
                     start_time=start_time,
-                    error_message=f"Caldera operation timed out after {self._timeout}s",
+                    error_message=(
+                        f"Caldera operation timed out after {effective_timeout}s "
+                        f"({len(ability_ids)} abilities, agent beacon up to {beacon}s). "
+                        "Lower the agent beacon (sleep_max) or raise CALDERA_OPERATION_TIMEOUT."
+                    ),
                 )
                 for t in techniques
             ]
