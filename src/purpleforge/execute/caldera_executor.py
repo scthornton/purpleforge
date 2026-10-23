@@ -34,6 +34,20 @@ def parse_caldera_time(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _failure_reason(status_code: Any, output: str) -> str:
+    """Build a concise failure reason for a non-zero Caldera link.
+
+    The link's command output (which ``decode_link_output`` already enriched with
+    stderr and any non-zero exit_code) usually carries the real cause, so its tail
+    is included. This is what makes an inconclusive technique actionable instead of
+    just "failed" with an empty error_message.
+    """
+    detail = output.strip()
+    if detail:
+        return f"Caldera link reported non-zero status {status_code}; output tail: {detail[-500:]}"
+    return f"Caldera link reported non-zero status {status_code} with no command output captured"
+
+
 class CalderaExecutor:
     """Execute the Caldera portion of an execution plan as a single operation."""
 
@@ -164,15 +178,17 @@ class CalderaExecutor:
                 except CalderaAPIError as e:
                     logger.warning("Could not fetch link result for %s: %s", link_id, e)
 
+            succeeded = status_code == 0
             records.append(
                 EmulationRecord(
                     technique_id=tid,
                     method=EmulationMethod.CALDERA,
-                    status=EmulationStatus.SUCCESS if status_code == 0 else EmulationStatus.FAILED,
+                    status=EmulationStatus.SUCCESS if succeeded else EmulationStatus.FAILED,
                     execution_id=link_id,
                     start_time=link_start,
                     end_time=link_end,
                     raw_output=raw_output[:5000],
+                    error_message=None if succeeded else _failure_reason(status_code, raw_output),
                 )
             )
 

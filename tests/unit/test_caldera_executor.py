@@ -79,6 +79,51 @@ class TestReusedOperation:
         assert records[0].status == EmulationStatus.FAILED
         assert "No matching link" in (records[0].error_message or "")
 
+    def test_failed_link_surfaces_reason(self) -> None:
+        client = MagicMock()
+        client.list_operations.return_value = [
+            {
+                "id": "op-f",
+                "name": "purpleforge-run1",
+                "state": "finished",
+                "start": "2026-10-01T10:00:00Z",
+                "chain": [
+                    {
+                        "id": "l1",
+                        "ability": {"technique_id": "T1016"},
+                        "status": 1,
+                        "decide": "2026-10-01T10:00:30Z",
+                        "finish": "2026-10-01T10:00:31Z",
+                    }
+                ],
+            }
+        ]
+        client.get_link_result.return_value = "The system cannot find the path specified.\nexit_code: 1"
+
+        rec = CalderaExecutor(client, run_id="run1").execute([_tech("T1016")])[0]
+
+        assert rec.status == EmulationStatus.FAILED
+        # The real cause is surfaced into error_message, not just left in raw_output.
+        assert rec.error_message is not None
+        assert "status 1" in rec.error_message
+        assert "cannot find the path" in rec.error_message
+
+    def test_successful_link_has_no_error_message(self) -> None:
+        client = MagicMock()
+        client.list_operations.return_value = [
+            {
+                "id": "op-s",
+                "name": "purpleforge-run1",
+                "state": "finished",
+                "start": "2026-10-01T10:00:00Z",
+                "chain": [{"id": "l1", "ability": {"technique_id": "T1033"}, "status": 0}],
+            }
+        ]
+        client.get_link_result.return_value = "pf-win\\user"
+        rec = CalderaExecutor(client, run_id="run1").execute([_tech("T1033")])[0]
+        assert rec.status == EmulationStatus.SUCCESS
+        assert rec.error_message is None
+
 
 class TestNewOperation:
     def test_fails_before_creating_when_no_agents(self) -> None:
