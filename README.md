@@ -8,8 +8,6 @@ Given a threat report PDF, PurpleForge extracts MITRE ATT&CK techniques, pauses 
   <img src="assets/demo-screenshot.png" alt="PurpleForge coverage output" width="800">
 </p>
 
-PurpleForge began as a SANS SEC598 project and is being built into a tool an enterprise can run and trust.
-
 ## Why it exists
 
 Purple teaming connects red team emulation to blue team detection. The hard part is proving a coverage claim: "we detect T1059.001" means nothing without evidence. PurpleForge answers each claim with a complete evidence chain, the emulation step that ran, when it ran, the time window searched, and the specific alert IDs that matched.
